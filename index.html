@@ -86,6 +86,17 @@
   .bar .chip { height: 36px; padding: 0 12px; font-size: 14px; }
   #grid2 { flex: 1; overflow-y: auto; display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px; padding: 3px; align-content: start; }
   #grid2 button { position: relative; aspect-ratio: 1; background: #222 center/cover no-repeat; border-radius: 4px; }
+  #grid2 button { -webkit-touch-callout: none; }
+  #grid2 button.sel { outline: 3px solid var(--accent); outline-offset: -3px; }
+  #grid2.selecting button:not(.sel) { opacity: .55; }
+  #grid2 button .ck { position: absolute; top: 5px; right: 5px; width: 24px; height: 24px; border-radius: 50%; border: 2px solid #fff; background: rgba(0,0,0,.35);
+    display: none; align-items: center; justify-content: center; font-size: 14px; font-weight: 900; color: #111; }
+  #grid2.selecting button .ck { display: flex; }
+  #grid2 button.sel .ck { background: var(--accent); border-color: var(--accent); }
+  .selbar { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; border-top: 1px solid var(--line);
+    padding: 12px max(16px, env(safe-area-inset-right, 0px)) calc(env(safe-area-inset-bottom, 0px) + 14px) max(16px, env(safe-area-inset-left, 0px)); }
+  .selbar .big { min-width: 0; padding: 14px 24px; font-size: 17px; }
+  .note .chip { margin-top: 10px; background: var(--accent); color: #111; font-weight: 800; }
   #grid2 button.saved::after { content: "保存ずみ"; position: absolute; left: 4px; bottom: 4px; padding: 1px 6px; border-radius: 6px; background: rgba(0,0,0,.6); font-size: 10px; font-weight: 700; }
   .note { padding: 12px max(16px, env(safe-area-inset-right, 0px)) calc(env(safe-area-inset-bottom, 0px) + 14px) max(16px, env(safe-area-inset-left, 0px));
     border-top: 1px solid var(--line); color: var(--mute); font-size: 13px; line-height: 1.7; }
@@ -155,10 +166,15 @@
   <div class="bar">
     <button id="galBack" class="chip" type="button">← カメラ</button>
     <h2 id="galTitle">0枚</h2>
-    <button id="saveAll" class="chip" type="button">まとめて保存</button>
+    <button id="selBtn" class="chip" type="button">えらぶ</button>
   </div>
   <div id="grid2"></div>
-  <div class="note" id="galNote">写真は、まだ<b>このアプリの中</b>にあります。「保存」を押すと、スマホの写真アプリに入ります。大事な写真は早めに保存してください。</div>
+  <div class="note" id="galNote">写真は、まだ<b>このアプリの中</b>にあります。保存すると、スマホの写真アプリに入ります。写真を<b>長押し</b>すると、えらんで保存・削除できます。
+    <div><button id="saveAll" class="chip" type="button">まだ保存していない写真を保存</button></div></div>
+  <div class="selbar" id="selBar" hidden>
+    <button id="selSave" class="big" type="button">📥 保存</button>
+    <button id="selDel" class="sub" type="button">🗑 消す</button>
+  </div>
 </div>
 
 <!-- 1枚を大きく見る -->
@@ -366,19 +382,43 @@
     show('gallery', true); show('viewer', false);
     var g = $('grid2'); g.innerHTML = '';
     var unsaved = photos.filter(function (p) { return !p.saved; }).length;
-    $('galTitle').textContent = photos.length + '枚';
-    $('saveAll').hidden = !unsaved;
-    $('saveAll').textContent = 'まとめて保存';
-    if (!photos.length) { g.innerHTML = '<div class="empty-msg">まだ写真がありません。<br>カメラにもどって、白い丸を押すと撮れます。</div>'; return; }
+    selIds = selIds.filter(function (id) { return photos.some(function (p) { return p.id === id; }); });
+    var selecting = selMode && photos.length > 0;
+    g.classList.toggle('selecting', selecting);
+    $('galTitle').textContent = selecting ? selIds.length + '枚 えらんだ' : photos.length + '枚';
+    $('selBtn').hidden = !photos.length;
+    $('selBtn').textContent = selecting ? 'やめる' : 'えらぶ';
+    $('galBack').textContent = selecting ? '全部' : '← カメラ';
+    $('saveAll').parentNode.hidden = !unsaved;
+    $('saveAll').textContent = 'まだ保存していない写真を保存(' + unsaved + '枚)';
+    $('galNote').hidden = selecting;
+    $('selBar').hidden = !selecting;
+    $('selSave').disabled = $('selDel').disabled = !selIds.length;
+    $('selSave').style.opacity = $('selDel').style.opacity = selIds.length ? '' : '.4';
+    if (!photos.length) { selMode = false; g.innerHTML = '<div class="empty-msg">まだ写真がありません。<br>カメラにもどって、白い丸を押すと撮れます。</div>'; return; }
     photos.forEach(function (p) {
       var b = document.createElement('button'); b.type = 'button';
       b.style.backgroundImage = 'url(' + urlOf(p) + ')';
-      if (p.saved) b.className = 'saved';
-      b.setAttribute('aria-label', when(p.t) + ' の写真');
-      b.onclick = function () { openViewer(p); };
+      var isSel = selIds.indexOf(p.id) >= 0;
+      b.className = (p.saved ? 'saved' : '') + (isSel ? ' sel' : '');
+      b.innerHTML = '<span class="ck">' + (isSel ? '✓' : '') + '</span>';
+      b.setAttribute('aria-label', when(p.t) + ' の写真' + (selecting ? (isSel ? '(えらんだ)' : '') : ''));
+      // 長押し(0.5秒)で えらぶ。えらんでいる間は、押すたびに えらぶ/外す
+      var timer = null, longDone = false;
+      b.addEventListener('pointerdown', function () { longDone = false; clearTimeout(timer); timer = setTimeout(function () { longDone = true; if (navigator.vibrate) try { navigator.vibrate(20); } catch (e) {} if (!selMode) { selMode = true; selIds = []; } toggleSel(p); }, 500); });
+      ['pointerup', 'pointercancel', 'pointerleave'].forEach(function (ev) { b.addEventListener(ev, function () { clearTimeout(timer); }); });
+      b.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+      b.onclick = function () { if (longDone) { longDone = false; return; } if (selMode) toggleSel(p); else openViewer(p); };
       g.appendChild(b);
     });
   }
+  var selMode = false, selIds = [];
+  function toggleSel(p) {
+    var i = selIds.indexOf(p.id);
+    if (i >= 0) selIds.splice(i, 1); else selIds.push(p.id);
+    var y = $('grid2').scrollTop; openGallery(); $('grid2').scrollTop = y;
+  }
+  function selected() { return photos.filter(function (p) { return selIds.indexOf(p.id) >= 0; }); }
   function when(t) { var d = new Date(t); return (d.getMonth() + 1) + '月' + d.getDate() + '日 ' + d.getHours() + ':' + ('0' + d.getMinutes()).slice(-2); }
   function fname(t) { var d = new Date(t), z = function (n) { return ('0' + n).slice(-2); }; return 'shizuka_' + d.getFullYear() + z(d.getMonth() + 1) + z(d.getDate()) + '_' + z(d.getHours()) + z(d.getMinutes()) + z(d.getSeconds()) + '.jpg'; }
 
@@ -398,7 +438,8 @@
         var canShare = navigator.canShare && navigator.share && navigator.canShare({ files: files });
         if (canShare) {
           if (isIOS) toast('出てきた画面で「画像を保存」を押してください');
-          return navigator.share({ files: files }).then(function () { return true; }, function (e) { if (e && e.name === 'AbortError') return false; return download(files); });
+          // スマホによっては、保存せずに戻っても「できた」と返ってくる。だから、本人に聞いてから「保存ずみ」にする
+          return navigator.share({ files: files }).then(function () { return askSaved(files.length); }, function (e) { if (e && e.name === 'AbortError') return false; return download(files); });
         }
         return download(files);
       }).then(function (ok) {
@@ -419,16 +460,24 @@
     return true;
   }
 
-  function ask(msg, yes) {
+  function ask(msg, yes, yesLabel, noLabel, no) {
     $('cfMsg').textContent = msg; show('confirm', true);
+    $('cfYes').textContent = yesLabel || '消す'; $('cfNo').textContent = noLabel || 'やめる';
     $('cfYes').onclick = function () { show('confirm', false); yes(); };
-    $('cfNo').onclick = function () { show('confirm', false); };
+    $('cfNo').onclick = function () { show('confirm', false); if (no) no(); };
   }
-  function del(p) {
-    tx(['photos', 'full'], 'readwrite', function (x) { x.objectStore('photos').delete(p.id); x.objectStore('full').delete(p.id); }).then(function () {
-      photos = photos.filter(function (q) { return q !== p; });
-      if (urls[p.id]) { URL.revokeObjectURL(urls[p.id]); delete urls[p.id]; }
-      refreshThumb(); openGallery(); toast('消しました');
+  function askSaved(n) {
+    return new Promise(function (res) {
+      ask((n > 1 ? n + '枚の写真を' : '写真を') + '、写真アプリに保存できましたか?', function () { res(true); }, 'できた', 'まだ', function () { toast('「保存ずみ」にはしていません'); res(false); });
+    });
+  }
+  function del(p) { delMany([p]); }
+  function delMany(list) {
+    tx(['photos', 'full'], 'readwrite', function (x) { list.forEach(function (p) { x.objectStore('photos').delete(p.id); x.objectStore('full').delete(p.id); }); }).then(function () {
+      photos = photos.filter(function (q) { return list.indexOf(q) < 0; });
+      list.forEach(function (p) { if (urls[p.id]) { URL.revokeObjectURL(urls[p.id]); delete urls[p.id]; } });
+      selMode = false; selIds = [];
+      refreshThumb(); openGallery(); toast(list.length > 1 ? list.length + '枚 消しました' : '消しました');
     });
   }
 
@@ -440,9 +489,22 @@
   $('gridBtn').onclick = function () {
     var on = $('grid').hidden; $('grid').hidden = !on; this.classList.toggle('on', on); this.setAttribute('aria-pressed', on); store('grid', on ? '1' : '0'); this.blur();
   };
-  $('thumb').onclick = function () { openGallery(); };
-  $('toGallery').onclick = function () { openGallery(); };
-  $('galBack').onclick = function () { show('gallery', false); if (!stream) startCam(); };
+  $('thumb').onclick = function () { selMode = false; selIds = []; openGallery(); };
+  $('toGallery').onclick = function () { selMode = false; selIds = []; openGallery(); };
+  $('galBack').onclick = function () {
+    if (selMode) { selIds = selIds.length === photos.length ? [] : photos.map(function (p) { return p.id; }); openGallery(); return; }
+    show('gallery', false); if (!stream) startCam();
+  };
+  $('selBtn').onclick = function () { selMode = !selMode; selIds = []; openGallery(); };
+  $('selSave').onclick = function () {
+    var list = selected(); if (!list.length) return;
+    saveList(list).then(function () { if (list.every(function (p) { return p.saved; })) { toast('保存しました'); selMode = false; selIds = []; } openGallery(); });
+  };
+  $('selDel').onclick = function () {
+    var list = selected(); if (!list.length) return;
+    var un = list.filter(function (p) { return !p.saved; }).length;
+    ask(list.length + '枚を、このアプリから消します。' + (un ? '(そのうち ' + un + '枚は、まだ保存していません。消すと元にもどせません)' : '(写真アプリに保存したものは残ります)'), function () { delMany(list); });
+  };
   $('vwBack').onclick = function () { openGallery(); };
   $('vwSave').onclick = function () { var p = cur; saveList([p]).then(function () { if (p.saved) { toast('保存しました'); openViewer(p); } }); };
   $('vwDel').onclick = function () {
@@ -451,7 +513,7 @@
   };
   $('saveAll').onclick = function () {
     var list = photos.filter(function (p) { return !p.saved; });
-    if (list.length) saveList(list).then(function () { openGallery(); });
+    if (list.length) saveList(list).then(function () { if (list.every(function (p) { return p.saved; })) toast('保存しました'); openGallery(); });
   };
   // 音量ボタンは、ブラウザのアプリからは使えない(スマホの決まり)ので、画面の白い丸で撮る。
   document.addEventListener('keydown', function (e) { if ((e.key === ' ' || e.key === 'Enter') && stream && $('gallery').hidden) { e.preventDefault(); shoot(); } });
