@@ -138,6 +138,7 @@
   #toast { position: fixed; left: 50%; bottom: calc(env(safe-area-inset-bottom, 0px) + 196px); transform: translateX(-50%); padding: 10px 18px; border-radius: 999px;
     background: rgba(0,0,0,.78); font-size: 14px; font-weight: 700; white-space: nowrap; pointer-events: none; opacity: 0; transition: opacity .2s; }
   #toast.on { opacity: 1; }
+  #toast { z-index: 50; }
   #confirm { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.6); padding: 24px; }
   #confirm .box { width: 100%; max-width: 340px; padding: 22px; border-radius: 18px; background: #1b1e26; text-align: center; }
   #confirm p { margin: 0 0 18px; line-height: 1.7; }
@@ -540,7 +541,7 @@
     $('selBtn').textContent = selecting ? 'やめる' : 'えらぶ';
     $('galBack').textContent = selecting ? '全部' : '← カメラ';
     $('saveAll').parentNode.hidden = !unsaved;
-    $('saveAll').textContent = 'まだ保存していない写真を保存(' + unsaved + '枚)';
+    $('saveAll').textContent = direct ? 'まだ保存していない写真をえらぶ(' + unsaved + '枚)' : 'まだ保存していない写真を保存(' + unsaved + '枚)';
     if (unsaved && unsaved <= 10) preload(photos.filter(function (p) { return !p.saved; }));
     $('galNote').hidden = selecting;
     $('selBar').hidden = !selecting;
@@ -595,11 +596,7 @@
   function preload(list) { list.forEach(function (p) { loadFile(p).catch(function () {}); }); }
   function forget(list) { list.forEach(function (p) { delete fileCache[p.id]; }); }
   function saveList(list) {
-    if (direct) return Promise.all(list.map(loadFile)).then(function (fs) {
-      download(fs);
-      list.forEach(function (p) { p.saved = true; }); forget(list);
-      return tx(['photos'], 'readwrite', function (x) { list.forEach(function (p) { x.objectStore('photos').put(p); }); });
-    }, function () { toast('保存できませんでした。もう一度ためしてください'); });
+    if (direct) return saveOneByOne(list);
     var files = list.map(function (p) { return fileCache[p.id]; });
     var go;
     if (files.every(Boolean)) go = shareFiles(files);          // 準備ずみ → 押した瞬間に開く
@@ -613,6 +610,34 @@
       list.forEach(function (p) { p.saved = true; }); forget(list);
       return tx(['photos'], 'readwrite', function (x) { list.forEach(function (p) { x.objectStore('photos').put(p); }); });
     });
+  }
+  // Android: 1枚ずつ順番に本体へ保存する。1枚おわるごとに「保存ずみ」をつけ、何枚目かを出す(2026-11-09 ノブさん「一気にではなく1つずつ」)
+  var savingNow = false;
+  function saveOneByOne(list) {
+    if (savingNow) return Promise.resolve();
+    savingNow = true; var n = list.length, i = 0;
+    return new Promise(function (done) {
+      (function next() {
+        if (i >= n) { savingNow = false; toast(n > 1 ? n + '枚 保存しました' : '本体の「ダウンロード」に保存しました'); done(); return; }
+        var p = list[i];
+        loadFile(p).then(function (f) {
+          dlOne(f); i++;
+          p.saved = true; forget([p]);
+          return tx(['photos'], 'readwrite', function (x) { x.objectStore('photos').put(p); });
+        }).then(function () {
+          if (n > 1) {
+            toast('保存しています ' + i + ' / ' + n + '枚');
+            if (!$('gallery').hidden && $('viewer').hidden) { var y = $('grid2').scrollTop; openGallery(); $('grid2').scrollTop = y; }
+          }
+          setTimeout(next, n > 1 ? 800 : 0);
+        }, function () { savingNow = false; toast('保存できませんでした(' + i + '枚まで保存ずみ)'); done(); });
+      })();
+    });
+  }
+  function dlOne(f) {
+    var a = document.createElement('a'), u = URL.createObjectURL(f);
+    a.href = u; a.download = f.name; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function () { URL.revokeObjectURL(u); }, 4000);
   }
   // Android: LINE などに送る(保存とは別。「保存ずみ」にはしない)
   function shareOnly(list) {
@@ -789,6 +814,11 @@
     ask(p.saved ? 'この写真を、このアプリから消します。(写真アプリに保存したものは残ります)' : 'この写真は、まだ保存していません。消すと元にもどせません。消しますか?', function () { del(p); if (layer() === 'vw') { skipPop = true; history.back(); } });
   };
   $('saveAll').onclick = function () {
+    // Android: いきなり全部は保存しない。まだの写真に印をつけた「えらぶ」画面にして、外したいものは外してから保存してもらう
+    if (direct) {
+      selMode = true; selIds = photos.filter(function (p) { return !p.saved; }).map(function (p) { return p.id; });
+      preload(selected()); openGallery(); toast('外したい写真は押して外し、「本体に保存」'); return;
+    }
     var list = photos.filter(function (p) { return !p.saved; });
     if (list.length) saveList(list).then(function () { if (list.every(function (p) { return p.saved; })) toast('保存しました'); openGallery(); });
   };
