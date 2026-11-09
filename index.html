@@ -33,7 +33,6 @@
   #stage { position: fixed; inset: 0; overflow: hidden; background: #000; }
   #video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; transform-origin: 50% 50%; }
   #video.mirror { transform: scaleX(-1); }
-  #video.cover { object-fit: cover; }
   /* 写るところ(写真の形)。外がわは暗くする */
   #frame { position: absolute; pointer-events: none; box-shadow: 0 0 0 200vmax rgba(0,0,0,.55); }
   #grid { position: absolute; inset: 0; pointer-events: none;
@@ -394,16 +393,18 @@
     for (var i = 0; i < list.length; i++) if (Math.abs(r - list[i][0]) < 0.04) return list[i][1];
     return 'カメラのまま';
   }
-  // 写るところを画面に出す(ズームしていても、写るのは「ズーム前の映像の枠」と同じところ)
+  // 写るところを画面に出す。選んだ形の部分が、画面に入るいちばん大きな大きさになるように、映像ごと大きく映す
+  // (2026-11-09 ノブさん「16:9 が切り取られて見える。なるべく全画面に近く」)。はみ出した映像は画面の外
   function layoutFrame() {
     var f = $('frame'), vw = video.videoWidth, vh = video.videoHeight, st = $('stage');
     if (!vw || !vh) { f.hidden = true; return; }
-    var full = shape === 'full';
-    video.classList.toggle('cover', full);
-    var W = st.clientWidth, H = st.clientHeight, k = full ? Math.max(W / vw, H / vh) : Math.min(W / vw, H / vh), dw = vw * k, dh = vh * k;
-    var c = cropOf(dw, dh);
-    f.style.left = ((W - dw) / 2 + c.x) + 'px'; f.style.top = ((H - dh) / 2 + c.y) + 'px';
-    f.style.width = c.w + 'px'; f.style.height = c.h + 'px';
+    var W = st.clientWidth, H = st.clientHeight, c = cropOf(vw, vh);
+    var k = Math.min(W / c.w, H / c.h), dw = vw * k, dh = vh * k;
+    var vs = video.style;
+    vs.objectFit = 'fill'; vs.inset = 'auto';
+    vs.left = ((W - dw) / 2) + 'px'; vs.top = ((H - dh) / 2) + 'px'; vs.width = dw + 'px'; vs.height = dh + 'px';
+    f.style.left = ((W - c.w * k) / 2) + 'px'; f.style.top = ((H - c.h * k) / 2) + 'px';
+    f.style.width = (c.w * k) + 'px'; f.style.height = (c.h * k) + 'px';
     f.hidden = false;
   }
   video.addEventListener('loadedmetadata', function () { layoutFrame(); shapeLabel(); });
@@ -780,6 +781,35 @@
   try {
     if (!history.state || !history.state.shizuka) { history.replaceState({ shizuka: 'root' }, ''); history.pushState({ shizuka: 'guard' }, ''); }
   } catch (e) {}
+
+  // ---------- 新しい版が出たら、自動で読みなおす ----------
+  // ホーム画面のアプリは、閉じたつもりでも裏で開いたままのことが多く、もどっても読みなおさない。
+  // だから、開いたとき・もどってきたときに公開先の index.html の「しるし」(ETag / 最終更新)を見て、
+  // 開いたときと変わっていたら読みなおす。写真は IndexedDB にあるので消えない(2026-11-09 ノブさん「古いアプリが更新されない」)。
+  var verMark = null, needReload = false;
+  function fetchMark() {
+    if (location.protocol !== 'https:') return Promise.resolve(null);
+    return fetch('index.html', { method: 'HEAD', cache: 'no-store' }).then(function (r) {
+      return r.ok ? (r.headers.get('etag') || r.headers.get('last-modified')) : null;
+    }, function () { return null; });   // 電波がないときは何もしない
+  }
+  function busyNow() { return !!job || bursting || !$('viewer').hidden || !$('confirm').hidden || !$('gallery').hidden && selMode; }
+  function checkUpdate() {
+    fetchMark().then(function (m) {
+      if (!m) return;
+      if (verMark === null) { verMark = m; return; }
+      if (m !== verMark) { needReload = true; tryReload(); }
+    });
+  }
+  function tryReload() {
+    if (!needReload || document.hidden || busyNow()) return;
+    toast('新しい版にしています…');
+    setTimeout(function () { location.reload(); }, 600);
+  }
+  checkUpdate();
+  setInterval(function () { if (!document.hidden) checkUpdate(); }, 30 * 60 * 1000);
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) { if (needReload) tryReload(); else checkUpdate(); } });
+  document.addEventListener('click', function () { if (needReload) setTimeout(tryReload, 50); }, true);
 
   // 音量ボタンは、ブラウザのアプリからは使えない(スマホの決まり)ので、画面の白い丸で撮る。
   document.addEventListener('keydown', function (e) { if ((e.key === ' ' || e.key === 'Enter') && stream && $('gallery').hidden && !(e.target && e.target.tagName === 'BUTTON')) { e.preventDefault(); takeOne(); } });
