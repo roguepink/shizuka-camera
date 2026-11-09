@@ -202,10 +202,11 @@
     <button id="selBtn" class="chip" type="button">えらぶ</button>
   </div>
   <div id="grid2"></div>
-  <div class="note" id="galNote">写真は、まだ<b>このアプリの中</b>にあります。保存すると、スマホの写真アプリに入ります。写真を<b>長押し</b>すると、えらんで保存・削除できます。
+  <div class="note" id="galNote"><span id="galText">写真は、まだ<b>このアプリの中</b>にあります。保存すると、スマホの写真アプリに入ります。写真を<b>長押し</b>すると、えらんで保存・削除できます。</span>
     <div><button id="saveAll" class="chip" type="button">まだ保存していない写真を保存</button></div></div>
   <div class="selbar" id="selBar" hidden>
     <button id="selSave" class="big" type="button">📥 保存</button>
+    <button id="selShare" class="sub" type="button" hidden>↗ 共有</button>
     <button id="selDel" class="sub" type="button">🗑 消す</button>
   </div>
 </div>
@@ -220,6 +221,7 @@
   <div class="img"><img id="vwImg" alt="撮った写真"></div>
   <div class="acts">
     <button id="vwSave" class="big" type="button">📥 写真アプリに保存</button>
+    <button id="vwShare" class="sub" type="button" hidden>↗ 共有</button>
     <button id="vwDel" class="sub" type="button">🗑 消す</button>
   </div>
 </div>
@@ -247,6 +249,8 @@
   var ua = navigator.userAgent || '';
   var isIOS = /iPhone|iPad|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
   var isLine = / Line\//i.test(ua);
+  // Android のブラウザ(LINE の中はのぞく)では、ボタン1つで本体の「ダウンロード」に直接保存する。iPhone は今までどおり共有の画面から
+  var direct = /Android/i.test(ua) && !isLine;
   var stream = null, track = null, facing = 'environment', zoom = 1, hwZoom = null, wake = null, starting = false;
   var ZOOMS = [1, 2, 3];
   var photos = [];   // {id, t, w, h, thumb(Blob), saved}
@@ -540,8 +544,8 @@
     if (unsaved && unsaved <= 10) preload(photos.filter(function (p) { return !p.saved; }));
     $('galNote').hidden = selecting;
     $('selBar').hidden = !selecting;
-    $('selSave').disabled = $('selDel').disabled = !selIds.length;
-    $('selSave').style.opacity = $('selDel').style.opacity = selIds.length ? '' : '.4';
+    $('selSave').disabled = $('selDel').disabled = $('selShare').disabled = !selIds.length;
+    $('selSave').style.opacity = $('selDel').style.opacity = $('selShare').style.opacity = selIds.length ? '' : '.4';
     if (!photos.length) { selMode = false; g.innerHTML = '<div class="empty-msg">まだ写真がありません。<br>カメラにもどって、白い丸を押すと撮れます。</div>'; return; }
     photos.forEach(function (p) {
       var b = document.createElement('button'); b.type = 'button';
@@ -575,7 +579,7 @@
     $('vwTitle').textContent = when(p.t);
     $('vwImg').src = urlOf(p);
     getFull(p.id).then(function (b) { if (!b || cur !== p) return; if (curUrl) URL.revokeObjectURL(curUrl); curUrl = URL.createObjectURL(b); $('vwImg').src = curUrl; });
-    $('vwSave').textContent = p.saved ? '📥 もう一度保存' : '📥 写真アプリに保存';
+    $('vwSave').textContent = direct ? (p.saved ? '📥 もう一度 本体に保存' : '📥 本体に保存') : (p.saved ? '📥 もう一度保存' : '📥 写真アプリに保存');
     preload([p]);
   }
 
@@ -591,6 +595,11 @@
   function preload(list) { list.forEach(function (p) { loadFile(p).catch(function () {}); }); }
   function forget(list) { list.forEach(function (p) { delete fileCache[p.id]; }); }
   function saveList(list) {
+    if (direct) return Promise.all(list.map(loadFile)).then(function (fs) {
+      download(fs);
+      list.forEach(function (p) { p.saved = true; }); forget(list);
+      return tx(['photos'], 'readwrite', function (x) { list.forEach(function (p) { x.objectStore('photos').put(p); }); });
+    }, function () { toast('保存できませんでした。もう一度ためしてください'); });
     var files = list.map(function (p) { return fileCache[p.id]; });
     var go;
     if (files.every(Boolean)) go = shareFiles(files);          // 準備ずみ → 押した瞬間に開く
@@ -603,6 +612,20 @@
       if (!ok) return;
       list.forEach(function (p) { p.saved = true; }); forget(list);
       return tx(['photos'], 'readwrite', function (x) { list.forEach(function (p) { x.objectStore('photos').put(p); }); });
+    });
+  }
+  // Android: LINE などに送る(保存とは別。「保存ずみ」にはしない)
+  function shareOnly(list) {
+    var fs = list.map(function (p) { return fileCache[p.id]; });
+    function go(files) {
+      var ok = false;
+      try { ok = !!(navigator.share && navigator.canShare && navigator.canShare({ files: files })); } catch (e) {}
+      if (!ok) { toast('このブラウザでは共有できません'); return; }
+      navigator.share({ files: files }).catch(function () {});
+    }
+    if (fs.every(Boolean)) go(fs);                                   // 準備ずみ → 押した瞬間に開く
+    else Promise.all(list.map(loadFile)).then(function (files) {
+      ask('写真の準備ができました。「共有する」を押してください。', function () { go(files); }, '共有する', 'やめる');
     });
   }
   // 押した瞬間に呼ぶこと(この中で待たない)
@@ -634,7 +657,7 @@
         setTimeout(function () { URL.revokeObjectURL(u); }, 4000);
       }, i * 350);
     });
-    toast(isIOS ? '「ファイル」アプリに入りました' : 'ダウンロードに入りました');
+    toast(isIOS ? '「ファイル」アプリに入りました' : (files.length > 1 ? files.length + '枚を' : '') + '本体の「ダウンロード」に保存しました');
     return true;
   }
 
@@ -745,7 +768,7 @@
   $('selBtn').onclick = function () { selMode = !selMode; selIds = []; openGallery(); };
   $('selSave').onclick = function () {
     var list = selected(); if (!list.length) return;
-    saveList(list).then(function () { if (list.every(function (p) { return p.saved; })) { toast('保存しました'); selMode = false; selIds = []; } openGallery(); });
+    saveList(list).then(function () { if (list.every(function (p) { return p.saved; })) { if (!direct) toast('保存しました'); selMode = false; selIds = []; } openGallery(); });
   };
   $('selDel').onclick = function () {
     var list = selected(); if (!list.length) return;
@@ -753,7 +776,14 @@
     ask(list.length + '枚を、このアプリから消します。' + (un ? '(そのうち ' + un + '枚は、まだ保存していません。消すと元にもどせません)' : '(写真アプリに保存したものは残ります)'), function () { delMany(list); });
   };
   $('vwBack').onclick = function () { closeLayer(); };
-  $('vwSave').onclick = function () { var p = cur; saveList([p]).then(function () { if (p.saved) { toast('保存しました'); openViewer(p); } }); };
+  $('vwSave').onclick = function () { var p = cur; saveList([p]).then(function () { if (p.saved) { if (!direct) toast('保存しました'); openViewer(p); } }); };
+  $('vwShare').onclick = function () { shareOnly([cur]); };
+  $('selShare').onclick = function () { var list = selected(); if (list.length) shareOnly(list); };
+  if (direct) {
+    $('vwShare').hidden = $('selShare').hidden = false;
+    $('selSave').textContent = '📥 本体に保存';
+    $('galText').innerHTML = '写真は、まだ<b>このアプリの中</b>にあります。保存すると、スマホ本体の<b>「ダウンロード」</b>に入ります(写真アプリにも出ます)。写真を<b>長押し</b>すると、えらんで保存・共有・削除できます。';
+  }
   $('vwDel').onclick = function () {
     var p = cur;
     ask(p.saved ? 'この写真を、このアプリから消します。(写真アプリに保存したものは残ります)' : 'この写真は、まだ保存していません。消すと元にもどせません。消しますか?', function () { del(p); if (layer() === 'vw') { skipPop = true; history.back(); } });
