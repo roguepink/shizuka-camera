@@ -33,6 +33,8 @@
   #stage { position: fixed; inset: 0; overflow: hidden; background: #000; }
   #video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; transform-origin: 50% 50%; }
   #video.mirror { transform: scaleX(-1); }
+  /* 写るところ(写真の形)。外がわは暗くする */
+  #frame { position: absolute; pointer-events: none; box-shadow: 0 0 0 200vmax rgba(0,0,0,.55); }
   #grid { position: absolute; inset: 0; pointer-events: none;
     background-image: linear-gradient(to right, transparent calc(33.33% - .5px), rgba(255,255,255,.35) calc(33.33% - .5px), rgba(255,255,255,.35) calc(33.33% + .5px), transparent calc(33.33% + .5px), transparent calc(66.66% - .5px), rgba(255,255,255,.35) calc(66.66% - .5px), rgba(255,255,255,.35) calc(66.66% + .5px), transparent calc(66.66% + .5px)),
       linear-gradient(to bottom, transparent calc(33.33% - .5px), rgba(255,255,255,.35) calc(33.33% - .5px), rgba(255,255,255,.35) calc(33.33% + .5px), transparent calc(33.33% + .5px), transparent calc(66.66% - .5px), rgba(255,255,255,.35) calc(66.66% - .5px), rgba(255,255,255,.35) calc(66.66% + .5px), transparent calc(66.66% + .5px)); }
@@ -48,6 +50,14 @@
     border: 1px solid var(--line); font-size: 15px; font-weight: 700; }
   .chip.on { background: var(--fg); color: #111; }
   #silent { height: 34px; display: inline-flex; align-items: center; padding: 0 12px; border-radius: 999px; background: var(--panel); font-size: 13px; font-weight: 700; color: var(--accent); white-space: nowrap; }
+  #opts { position: fixed; left: 0; right: 0; top: calc(env(safe-area-inset-top, 0px) + 60px); display: flex; flex-wrap: wrap; justify-content: center; gap: 7px;
+    padding: 0 max(10px, env(safe-area-inset-left, 0px)); }
+  #opts .chip { height: 36px; padding: 0 11px; font-size: 13.5px; }
+  @media (max-width: 359px) { #opts { gap: 4px; padding: 0 6px; } #opts .chip { padding: 0 7px; font-size: 12px; gap: 3px; } }
+  /* タイマーの数字・待っているときの知らせ */
+  #cd { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); pointer-events: none; text-align: center; white-space: nowrap; }
+  #cd.num { font-size: 132px; font-weight: 900; color: #fff; text-shadow: 0 2px 18px rgba(0,0,0,.6); }
+  #cd.msg { padding: 10px 18px; border-radius: 999px; background: rgba(0,0,0,.7); font-size: 16px; font-weight: 800; color: var(--accent); }
   #zooms { position: fixed; left: 0; right: 0; bottom: calc(env(safe-area-inset-bottom, 0px) + 132px); display: flex; justify-content: center; gap: 10px; }
   #zooms button { width: 46px; height: 46px; border-radius: 50%; background: var(--panel); border: 1px solid var(--line); font-size: 14px; font-weight: 800; }
   #zooms button.on { color: var(--accent); border-color: var(--accent); }
@@ -63,6 +73,10 @@
   #shutter { width: 82px; height: 82px; border-radius: 50%; border: 5px solid #fff; padding: 5px; }
   #shutter span { display: block; width: 100%; height: 100%; border-radius: 50%; background: #fff; transition: transform .1s; }
   #shutter:active span { transform: scale(.86); }
+  #shutter { touch-action: none; -webkit-touch-callout: none; }
+  #shutter.wait span { background: var(--accent); animation: pulse 1s ease-in-out infinite; }
+  #shutter.burst span { background: var(--accent); transform: scale(.86); }
+  @keyframes pulse { 50% { transform: scale(.8); } }
   #flip { justify-self: end; width: 58px; height: 58px; border-radius: 50%; background: var(--panel); border: 1px solid var(--line); font-size: 26px; }
 
   /* ---------- はじめ・困ったとき ---------- */
@@ -109,7 +123,7 @@
   #viewer .acts { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap;
     padding: 14px max(16px, env(safe-area-inset-right, 0px)) calc(env(safe-area-inset-bottom, 0px) + 18px) max(16px, env(safe-area-inset-left, 0px)); }
   #viewer .acts .big { min-width: 0; }
-  #toast { position: fixed; left: 50%; bottom: calc(env(safe-area-inset-bottom, 0px) + 150px); transform: translateX(-50%); padding: 10px 18px; border-radius: 999px;
+  #toast { position: fixed; left: 50%; bottom: calc(env(safe-area-inset-bottom, 0px) + 196px); transform: translateX(-50%); padding: 10px 18px; border-radius: 999px;
     background: rgba(0,0,0,.78); font-size: 14px; font-weight: 700; white-space: nowrap; pointer-events: none; opacity: 0; transition: opacity .2s; }
   #toast.on { opacity: 1; }
   #confirm { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.6); padding: 24px; }
@@ -122,15 +136,19 @@
 
 <div id="stage">
   <video id="video" playsinline muted autoplay></video>
-  <div id="grid" hidden></div>
+  <div id="frame" hidden><div id="grid" hidden></div></div>
   <div id="flash"></div>
+  <div id="cd" hidden></div>
 </div>
 
 <div id="top">
   <span id="silent">🔇 シャッター音なし</span>
-  <span style="display:flex;gap:8px">
-    <button id="gridBtn" class="chip" type="button" aria-pressed="false">＃ 線</button>
-  </span>
+</div>
+<div id="opts">
+  <button id="gridBtn" class="chip" type="button" aria-pressed="false">＃ 線</button>
+  <button id="timerBtn" class="chip" type="button">⏱ タイマー</button>
+  <button id="shapeBtn" class="chip" type="button">▭ ふつう</button>
+  <button id="steadyBtn" class="chip" type="button" aria-pressed="false">✋ ぶれ防止</button>
 </div>
 <div id="zooms"></div>
 <div id="bottom">
@@ -199,7 +217,6 @@
   </div>
 </div>
 
-<canvas id="cv" hidden></canvas>
 
 <script>
 'use strict';
@@ -212,7 +229,7 @@
  */
 (function () {
   var $ = function (id) { return document.getElementById(id); };
-  var video = $('video'), cv = $('cv');
+  var video = $('video');
   var ua = navigator.userAgent || '';
   var isIOS = /iPhone|iPad|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
   var isLine = / Line\//i.test(ua);
@@ -220,6 +237,9 @@
   var ZOOMS = [1, 2, 3];
   var photos = [];   // {id, t, w, h, thumb(Blob), saved}
   var urls = {};     // id → 一覧用の小さい画像の URL
+  // 写真の形(ふつう=カメラのまま、ワイド=16:9、正方形)・タイマー・ぶれ防止
+  var SHAPES = { normal: ['▭ ふつう', 0, 'ふつう'], wide: ['▭ ワイド', 16 / 9, 'ワイド(横長・縦長)'], square: ['◻ 正方形', 1, '正方形'] };
+  var shape = 'normal', timerSec = 0, steady = false;
 
   function store(k, v) { try { if (v === undefined) return localStorage.getItem('shizuka.' + k); localStorage.setItem('shizuka.' + k, v); } catch (e) { return null; } }
   function toast(msg) { var t = $('toast'); t.textContent = msg; t.classList.add('on'); clearTimeout(toast.tm); toast.tm = setTimeout(function () { t.classList.remove('on'); }, 1600); }
@@ -268,6 +288,7 @@
 
   // ---------- カメラ ----------
   function stopCam() {
+    cancelJob(); stopBurst(true);
     if (stream) stream.getTracks().forEach(function (t) { t.stop(); });
     stream = null; track = null;
     if (wake) { try { wake.release(); } catch (e) {} wake = null; }
@@ -288,7 +309,7 @@
       video.classList.toggle('mirror', facing === 'user');
       store('started', '1');
       show('start', false); show('trouble', false);
-      setupZoom();
+      setupZoom(); layoutFrame();
       try { if (navigator.wakeLock) navigator.wakeLock.request('screen').then(function (w) { wake = w; }, function () {}); } catch (e) {}
     }).catch(function (e) { starting = false; trouble(e && e.name); });
   }
@@ -340,34 +361,127 @@
     }
   }
 
+  // ---------- 写真の形 ----------
+  // 横長の画面なら横長に、縦長なら縦長に切り取る。まん中を残す
+  function cropOf(w, h) {
+    var r = SHAPES[shape][1];
+    if (!r) return { x: 0, y: 0, w: Math.round(w), h: Math.round(h) };
+    var want = w >= h ? r : 1 / r, cw = w, ch = h;
+    if (w / h > want) cw = h * want; else ch = w / want;
+    cw = Math.round(cw); ch = Math.round(ch);
+    return { x: Math.round((w - cw) / 2), y: Math.round((h - ch) / 2), w: cw, h: ch };
+  }
+  // 写るところを画面に出す(ズームしていても、写るのは「ズーム前の映像の枠」と同じところ)
+  function layoutFrame() {
+    var f = $('frame'), vw = video.videoWidth, vh = video.videoHeight, st = $('stage');
+    if (!vw || !vh) { f.hidden = true; return; }
+    var W = st.clientWidth, H = st.clientHeight, k = Math.min(W / vw, H / vh), dw = vw * k, dh = vh * k;
+    var c = cropOf(dw, dh);
+    f.style.left = ((W - dw) / 2 + c.x) + 'px'; f.style.top = ((H - dh) / 2 + c.y) + 'px';
+    f.style.width = c.w + 'px'; f.style.height = c.h + 'px';
+    f.hidden = false;
+  }
+  video.addEventListener('loadedmetadata', layoutFrame);
+  video.addEventListener('resize', layoutFrame);
+  window.addEventListener('resize', layoutFrame);
+
   // ---------- 撮る ----------
-  function shoot() {
+  // 1枚ごとに新しい紙(canvas)を使う。連写で次を撮っても、前の写真がまざらないように
+  var pending = 0, lastT = 0;
+  function grab(quiet) {
     var vw = video.videoWidth, vh = video.videoHeight;
-    if (!stream || !vw || !vh) { toast('カメラの準備中です'); return; }
+    if (!stream || !vw || !vh) { toast('カメラの準備中です'); return false; }
     var dz = hwZoom ? 1 : zoom;                       // 切り取りで寄るときだけ
-    var sw = Math.round(vw / dz), sh = Math.round(vh / dz), sx = Math.round((vw - sw) / 2), sy = Math.round((vh - sh) / 2);
-    cv.width = sw; cv.height = sh;
-    var g = cv.getContext('2d');
-    g.setTransform(1, 0, 0, 1, 0, 0);               // 前のカメラでも、写真は鏡にしない(ふつうのカメラと同じ)
-    g.drawImage(video, sx, sy, sw, sh, 0, 0, sw, sh);
-    var fl = $('flash'); fl.classList.remove('on'); void fl.offsetWidth; fl.classList.add('on');
-    var t = Date.now();
-    cv.toBlob(function (full) {
-      if (!full) { toast('うまく撮れませんでした'); return; }
-      // 一覧用の小さい画像
-      var k = 360 / Math.max(sw, sh), tw = Math.round(sw * k), th = Math.round(sh * k);
-      var c2 = document.createElement('canvas'); c2.width = tw; c2.height = th;
-      c2.getContext('2d').drawImage(cv, 0, 0, tw, th);
-      c2.toBlob(function (thumb) {
+    var zw = vw / dz, zh = vh / dz, c = cropOf(zw, zh);
+    var sx = Math.round((vw - zw) / 2 + c.x), sy = Math.round((vh - zh) / 2 + c.y), sw = c.w, sh = c.h;
+    var big = document.createElement('canvas'); big.width = sw; big.height = sh;
+    big.getContext('2d').drawImage(video, sx, sy, sw, sh, 0, 0, sw, sh);   // 前のカメラでも、写真は鏡にしない
+    var k = 360 / Math.max(sw, sh), small = document.createElement('canvas');
+    small.width = Math.max(1, Math.round(sw * k)); small.height = Math.max(1, Math.round(sh * k));
+    small.getContext('2d').drawImage(big, 0, 0, small.width, small.height);
+    if (!quiet) { var fl = $('flash'); fl.classList.remove('on'); void fl.offsetWidth; fl.classList.add('on'); }
+    var t = Date.now(); if (t <= lastT) t = lastT + 1; lastT = t;   // 連写でも名前がかぶらないように
+    pending++;
+    var fail = function (msg) { pending--; toast(msg); };
+    big.toBlob(function (full) {
+      big.width = big.height = 0;
+      if (!full) return fail('うまく撮れませんでした');
+      small.toBlob(function (thumb) {
         var rec = { id: t, t: t, w: sw, h: sh, thumb: thumb, saved: false };
         tx(['photos', 'full'], 'readwrite', function (x) {
           x.objectStore('photos').put(rec);
           x.objectStore('full').put({ id: t, blob: full });
         }).then(function () {
-          photos.unshift(rec); refreshThumb();
-        }, function () { toast('しまう場所がいっぱいです。保存して消してください'); });
+          pending--;
+          photos.push(rec); photos.sort(function (a, b) { return b.t - a.t; }); refreshThumb();
+        }, function () { fail('しまう場所がいっぱいです。保存して消してください'); });
       }, 'image/jpeg', 0.8);
     }, 'image/jpeg', 0.92);
+    return true;
+  }
+
+  function showCd(text, kind) { var d = $('cd'); d.textContent = text; d.className = kind; d.hidden = false; }
+  function hideCd() { $('cd').hidden = true; }
+
+  // ---------- 1枚撮る(タイマー → ぶれ防止 → 撮る) ----------
+  var job = null;
+  function cancelJob() { if (job) { job.cancel(); job = null; } hideCd(); $('shutter').classList.remove('wait'); }
+  function takeOne() {
+    if (job) { cancelJob(); toast('やめました'); return; }
+    if (!stream || !video.videoWidth) { toast('カメラの準備中です'); return; }
+    if (!timerSec && !steady) { grab(); return; }
+    var alive = true, tm = null, left = timerSec;
+    job = { cancel: function () { alive = false; clearTimeout(tm); } };
+    $('shutter').classList.add('wait');
+    function done() { job = null; hideCd(); $('shutter').classList.remove('wait'); grab(); }
+    function tick() {
+      if (!alive) return;
+      if (left > 0) { showCd(left, 'num'); left--; tm = setTimeout(tick, 1000); return; }
+      if (steady) waitStill(); else done();
+    }
+    // 小さく写し取った映像を前と比べて、動きが小さい時が続いたら撮る。4秒待っても止まらなければ撮る
+    function waitStill() {
+      showCd('✋ 止まるのを待っています…', 'msg');
+      var prev = null, calm = 0, t0 = Date.now();
+      (function look() {
+        if (!alive) return;
+        var cur = sample();
+        if (prev && cur) calm = diff(prev, cur) < 3.2 ? calm + 1 : 0;
+        prev = cur;
+        if (calm >= 3 || Date.now() - t0 > 4000) return done();
+        tm = setTimeout(look, 80);
+      })();
+    }
+    tick();
+  }
+  var sc = null, sg = null;
+  function sample() {
+    try {
+      if (!sc) { sc = document.createElement('canvas'); sc.width = 48; sc.height = 36; sg = sc.getContext('2d', { willReadFrequently: true }); }
+      sg.drawImage(video, 0, 0, 48, 36);
+      var d = sg.getImageData(0, 0, 48, 36).data, out = new Uint8Array(48 * 36);
+      for (var i = 0, j = 0; i < d.length; i += 4, j++) out[j] = (d[i] * 3 + d[i + 1] * 6 + d[i + 2]) / 10;
+      return out;
+    } catch (e) { return null; }
+  }
+  function diff(a, b) { var s = 0; for (var i = 0; i < a.length; i++) s += Math.abs(a[i] - b[i]); return s / a.length; }
+
+  // ---------- 連写(白い丸を長押し) ----------
+  var bursting = false, burstN = 0, burstTm = null, BURST_MAX = 50;
+  function startBurst() {
+    if (!stream || !video.videoWidth) return;
+    bursting = true; burstN = 0; $('shutter').classList.add('burst');
+    (function next() {
+      if (!bursting) return;
+      if (burstN >= BURST_MAX) { stopBurst(); toast('連写は' + BURST_MAX + '枚までです'); return; }
+      if (pending < 2 && grab(true)) { burstN++; showCd('連写 ' + burstN + '枚', 'msg'); }
+      burstTm = setTimeout(next, 140);
+    })();
+  }
+  function stopBurst(silent) {
+    if (!bursting) return;
+    bursting = false; clearTimeout(burstTm); $('shutter').classList.remove('burst'); hideCd();
+    if (!silent && burstN) toast('連写 ' + burstN + '枚 撮りました');
   }
 
   function urlOf(p) { if (!urls[p.id]) urls[p.id] = URL.createObjectURL(p.thumb); return urls[p.id]; }
@@ -422,7 +536,7 @@
   }
   function selected() { return photos.filter(function (p) { return selIds.indexOf(p.id) >= 0; }); }
   function when(t) { var d = new Date(t); return (d.getMonth() + 1) + '月' + d.getDate() + '日 ' + d.getHours() + ':' + ('0' + d.getMinutes()).slice(-2); }
-  function fname(t) { var d = new Date(t), z = function (n) { return ('0' + n).slice(-2); }; return 'shizuka_' + d.getFullYear() + z(d.getMonth() + 1) + z(d.getDate()) + '_' + z(d.getHours()) + z(d.getMinutes()) + z(d.getSeconds()) + '.jpg'; }
+  function fname(t) { var d = new Date(t), z = function (n) { return ('0' + n).slice(-2); }; return 'shizuka_' + d.getFullYear() + z(d.getMonth() + 1) + z(d.getDate()) + '_' + z(d.getHours()) + z(d.getMinutes()) + z(d.getSeconds()) + '_' + ('00' + d.getMilliseconds()).slice(-3) + '.jpg'; }
 
   var cur = null, curUrl = null;
   function openViewer(p) {
@@ -517,7 +631,48 @@
   // ---------- ボタン ----------
   $('startBtn').onclick = startCam;
   $('retryBtn').onclick = startCam;
-  $('shutter').onclick = function () { shoot(); this.blur(); };
+  // 白い丸: 押してすぐ離す=1枚(タイマー・ぶれ防止つき)、長押し=連写
+  (function () {
+    var b = $('shutter'), holdTm = null, pressed = false, lastPtr = 0;
+    b.addEventListener('pointerdown', function (e) {
+      if (e.button > 0) return;
+      pressed = true; lastPtr = Date.now(); clearTimeout(holdTm);
+      try { b.setPointerCapture(e.pointerId); } catch (x) {}
+      if (!job) holdTm = setTimeout(startBurst, 450);   // タイマー中は、押して離すと やめる
+    });
+    function end(cancel) {
+      if (!pressed) return; pressed = false; lastPtr = Date.now(); clearTimeout(holdTm);
+      if (bursting) { stopBurst(); return; }
+      if (!cancel) takeOne();
+    }
+    b.addEventListener('pointerup', function () { end(false); b.blur(); });
+    b.addEventListener('pointercancel', function () { end(true); });
+    b.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+    // 読み上げ機能などで、指を使わずに押されたとき
+    b.addEventListener('click', function () { if (Date.now() - lastPtr > 800) takeOne(); });
+  })();
+  function setTimer(v) {
+    timerSec = v; var b = $('timerBtn');
+    b.textContent = v ? '⏱ ' + v + '秒' : '⏱ タイマー'; b.classList.toggle('on', !!v); store('timer', String(v));
+  }
+  function setShape(v) {
+    shape = SHAPES[v] ? v : 'normal'; var b = $('shapeBtn');
+    b.textContent = SHAPES[shape][0]; b.classList.toggle('on', shape !== 'normal'); store('shape', shape); layoutFrame();
+  }
+  function setSteady(v) {
+    steady = v; var b = $('steadyBtn'); b.classList.toggle('on', v); b.setAttribute('aria-pressed', v); store('steady', v ? '1' : '0');
+  }
+  $('timerBtn').onclick = function () {
+    var v = timerSec === 0 ? 3 : timerSec === 3 ? 10 : 0; setTimer(v);
+    toast(v ? 'タイマー ' + v + '秒(音は鳴りません)' : 'タイマー なし'); this.blur();
+  };
+  $('shapeBtn').onclick = function () {
+    var v = shape === 'normal' ? 'wide' : shape === 'wide' ? 'square' : 'normal'; setShape(v);
+    toast('写真の形: ' + SHAPES[v][2]); this.blur();
+  };
+  $('steadyBtn').onclick = function () {
+    setSteady(!steady); toast(steady ? 'ぶれ防止: 止まった瞬間に撮ります' : 'ぶれ防止: なし'); this.blur();
+  };
   $('flip').onclick = function () { facing = facing === 'user' ? 'environment' : 'user'; startCam(); this.blur(); };
   $('gridBtn').onclick = function () {
     var on = $('grid').hidden; $('grid').hidden = !on; this.classList.toggle('on', on); this.setAttribute('aria-pressed', on); store('grid', on ? '1' : '0'); this.blur();
@@ -549,7 +704,7 @@
     if (list.length) saveList(list).then(function () { if (list.every(function (p) { return p.saved; })) toast('保存しました'); openGallery(); });
   };
   // 音量ボタンは、ブラウザのアプリからは使えない(スマホの決まり)ので、画面の白い丸で撮る。
-  document.addEventListener('keydown', function (e) { if ((e.key === ' ' || e.key === 'Enter') && stream && $('gallery').hidden) { e.preventDefault(); shoot(); } });
+  document.addEventListener('keydown', function (e) { if ((e.key === ' ' || e.key === 'Enter') && stream && $('gallery').hidden && !(e.target && e.target.tagName === 'BUTTON')) { e.preventDefault(); takeOne(); } });
 
   // ほかのアプリに切りかえたらカメラを止め、もどったらつけなおす(電池とカメラのランプのため)
   document.addEventListener('visibilitychange', function () {
@@ -558,6 +713,9 @@
   });
 
   if (store('grid') === '1') { $('grid').hidden = false; $('gridBtn').classList.add('on'); }
+  setTimer(+store('timer') === 3 || +store('timer') === 10 ? +store('timer') : 0);
+  setShape(store('shape') || 'normal');
+  setSteady(store('steady') === '1');
   getAll().then(function (list) { photos = list.sort(function (a, b) { return b.t - a.t; }); refreshThumb(); }, function () {});
 
   // はじめの画面(インストール)を閉じたら、そのままカメラをひらく
@@ -571,7 +729,7 @@ if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.se
   window.INSTALL_GATE = { id: 'shizuka-camera', name: 'しずかカメラ', icon: 'icon-192.png', color: '#ffb46b',
     tagline: 'シャッター音が鳴らないカメラ',
     desc: 'シャッターの音を鳴らさずに写真が撮れます。寝ている赤ちゃんやペット、静かな場所での記録に。撮った写真は、ボタンひとつでスマホの写真アプリに保存できます。',
-    points: ['シャッター音が鳴らない', '1×・2×・3× のズーム、前と後ろのカメラ', '撮った写真は、まとめて写真アプリに保存'],
+    points: ['シャッター音が鳴らない', '長押しで連写・セルフタイマー・ぶれ防止', 'ズーム・写真の形(正方形など)・まとめて写真アプリに保存'],
     shots: ['shots/1.jpg', 'shots/2.jpg', 'shots/3.jpg'], playLabel: '▶ このまま使う', laterLabel: 'あとで(このまま使う)',
     badges: ['無料', '広告なし', '登録なし'], onPlay: function () { window.SHIZUKA_START && window.SHIZUKA_START(); } };
 </script>
