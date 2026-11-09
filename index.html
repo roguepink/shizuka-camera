@@ -84,6 +84,10 @@
   #shutter { touch-action: none; -webkit-touch-callout: none; }
   #shutter.wait span { background: var(--accent); animation: pulse 1s ease-in-out infinite; }
   #shutter.burst span { background: var(--accent); transform: scale(.86); }
+  #shutter { position: relative; }
+  #shutter.burstOn { border-color: var(--accent); }
+  #shutter.burstOn::after { content: '長押しで連写'; position: absolute; left: 50%; top: calc(100% + 5px); transform: translateX(-50%);
+    white-space: nowrap; font-size: 12px; font-weight: 800; color: var(--accent); text-shadow: 0 1px 3px rgba(0,0,0,.8); pointer-events: none; }
   @keyframes pulse { 50% { transform: scale(.8); } }
   #flip { justify-self: end; width: 58px; height: 58px; border-radius: 50%; background: var(--panel); border: 1px solid var(--line); font-size: 26px; }
 
@@ -157,6 +161,7 @@
   <button id="timerBtn" class="chip" type="button">⏱ タイマー</button>
   <button id="shapeBtn" class="chip" type="button" aria-haspopup="true">▭ 4:3</button>
   <button id="steadyBtn" class="chip" type="button" aria-pressed="false">✋ ぶれ防止</button>
+  <button id="burstBtn" class="chip" type="button" aria-pressed="false">⏩ 連写</button>
 </div>
 <div id="shapeMenu" hidden><div class="box" role="menu" aria-label="写真の形"></div></div>
 <div id="zooms"></div>
@@ -249,7 +254,7 @@
   // 写真の形(ふつう=カメラのまま、ワイド=16:9、正方形)・タイマー・ぶれ防止
   // normal = カメラのまま(たいてい 4:3)。full = 画面いっぱい(見えているとおりに撮る)
   var SHAPES = { normal: { r: 0 }, wide: { r: 16 / 9 }, square: { r: 1 }, full: { r: 'screen' } };
-  var shape = 'normal', timerSec = 0, steady = false;
+  var shape = 'normal', timerSec = 0, steady = false, burstOn = false;
 
   function store(k, v) { try { if (v === undefined) return localStorage.getItem('shizuka.' + k); localStorage.setItem('shizuka.' + k, v); } catch (e) { return null; } }
   function toast(msg) { var t = $('toast'); t.textContent = msg; t.classList.add('on'); clearTimeout(toast.tm); toast.tm = setTimeout(function () { t.classList.remove('on'); }, 1600); }
@@ -657,14 +662,14 @@
   // ---------- ボタン ----------
   $('startBtn').onclick = startCam;
   $('retryBtn').onclick = startCam;
-  // 白い丸: 押してすぐ離す=1枚(タイマー・ぶれ防止つき)、長押し=連写
+  // 白い丸: 押してすぐ離す=1枚(タイマー・ぶれ防止つき)。「連写」をオンにしたときだけ、長押し=連写
   (function () {
     var b = $('shutter'), holdTm = null, pressed = false, lastPtr = 0;
     b.addEventListener('pointerdown', function (e) {
       if (e.button > 0) return;
       pressed = true; lastPtr = Date.now(); clearTimeout(holdTm);
       try { b.setPointerCapture(e.pointerId); } catch (x) {}
-      if (!job) holdTm = setTimeout(startBurst, 450);   // タイマー中は、押して離すと やめる
+      if (!job && burstOn) holdTm = setTimeout(startBurst, 450);   // タイマー中は、押して離すと やめる
     });
     function end(cancel) {
       if (!pressed) return; pressed = false; lastPtr = Date.now(); clearTimeout(holdTm);
@@ -716,6 +721,14 @@
   };
   // 形のえらび画面の外をさわったら閉じる
   $('stage').addEventListener('pointerdown', function () { if (!$('shapeMenu').hidden) closeLayer(); });
+  function setBurst(v) {
+    burstOn = v; var b = $('burstBtn'); b.classList.toggle('on', v); b.setAttribute('aria-pressed', v); store('burst', v ? '1' : '0');
+    $('shutter').classList.toggle('burstOn', v);
+    $('shutter').setAttribute('aria-label', v ? '撮る(長押しで連写)' : '撮る');
+  }
+  $('burstBtn').onclick = function () {
+    setBurst(!burstOn); toast(burstOn ? '連写オン: 白い丸を長押し' : '連写オフ: 長押ししても1枚'); this.blur();
+  };
   $('steadyBtn').onclick = function () {
     setSteady(!steady); toast(steady ? 'ぶれ防止: 止まった瞬間に撮ります' : 'ぶれ防止: なし'); this.blur();
   };
@@ -841,6 +854,7 @@
   $('startBtn').addEventListener('click', goFull);
   document.addEventListener('fullscreenchange', layoutFrame);
   setSteady(store('steady') === '1');
+  setBurst(store('burst') === '1');
   getAll().then(function (list) { photos = list.sort(function (a, b) { return b.t - a.t; }); refreshThumb(); }, function () {});
 
   // はじめの画面(インストール)を閉じたら、そのままカメラをひらく
@@ -854,7 +868,7 @@ if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.se
   window.INSTALL_GATE = { id: 'shizuka-camera', name: 'しずかカメラ', icon: 'icon-192.png', color: '#ffb46b',
     tagline: 'シャッター音が鳴らないカメラ',
     desc: 'シャッターの音を鳴らさずに写真が撮れます。寝ている赤ちゃんやペット、静かな場所での記録に。撮った写真は、ボタンひとつでスマホの写真アプリに保存できます。',
-    points: ['シャッター音が鳴らない', '長押しで連写・セルフタイマー・ぶれ防止', 'ズーム・写真の形(正方形など)・まとめて写真アプリに保存'],
+    points: ['シャッター音が鳴らない', '連写・セルフタイマー・ぶれ防止', 'ズーム・写真の形(正方形など)・まとめて写真アプリに保存'],
     shots: ['shots/1.jpg', 'shots/2.jpg', 'shots/3.jpg'], playLabel: '▶ このまま使う', laterLabel: 'あとで(このまま使う)',
     badges: ['無料', '広告なし', '登録なし'], onPlay: function () { window.SHIZUKA_START && window.SHIZUKA_START(); } };
 </script>
