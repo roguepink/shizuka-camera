@@ -790,7 +790,11 @@
   function fetchMark() {
     if (location.protocol !== 'https:') return Promise.resolve(null);
     return fetch('index.html', { method: 'HEAD', cache: 'no-store' }).then(function (r) {
-      return r.ok ? (r.headers.get('etag') || r.headers.get('last-modified')) : null;
+      // ETag は、圧縮のしかたで W/"…" に変わり、毎回ちがって見えることがある(何度も読みなおす不具合 2026-11-09)。
+      // 最終更新の日時は変わらないので、そちらを使う。ETag は W/ を外して、日時がないときだけ
+      if (!r.ok) return null;
+      var lm = r.headers.get('last-modified'), et = r.headers.get('etag');
+      return lm || (et ? et.replace(/^W\//, '') : null);
     }, function () { return null; });   // 電波がないときは何もしない
   }
   function busyNow() { return !!job || bursting || !$('viewer').hidden || !$('confirm').hidden || !$('gallery').hidden && selMode; }
@@ -803,6 +807,10 @@
   }
   function tryReload() {
     if (!needReload || document.hidden || busyNow()) return;
+    // 歯止め: 1分以内に読みなおしたばかりなら、もう読みなおさない(くり返し読みなおすのを防ぐ)
+    var last = 0; try { last = +sessionStorage.getItem('shizuka.reloaded') || 0; } catch (e) {}
+    if (Date.now() - last < 60000) { needReload = false; return; }
+    try { sessionStorage.setItem('shizuka.reloaded', String(Date.now())); } catch (e) {}
     toast('新しい版にしています…');
     setTimeout(function () { location.reload(); }, 600);
   }
