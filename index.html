@@ -33,6 +33,7 @@
   #stage { position: fixed; inset: 0; overflow: hidden; background: #000; }
   #video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; transform-origin: 50% 50%; }
   #video.mirror { transform: scaleX(-1); }
+  #video.cover { object-fit: cover; }
   /* 写るところ(写真の形)。外がわは暗くする */
   #frame { position: absolute; pointer-events: none; box-shadow: 0 0 0 200vmax rgba(0,0,0,.55); }
   #grid { position: absolute; inset: 0; pointer-events: none;
@@ -54,6 +55,14 @@
     padding: 0 max(10px, env(safe-area-inset-left, 0px)); }
   #opts .chip { height: 36px; padding: 0 11px; font-size: 13.5px; }
   @media (max-width: 359px) { #opts { gap: 4px; padding: 0 6px; } #opts .chip { padding: 0 7px; font-size: 12px; gap: 3px; } }
+  /* 写真の形をえらぶ */
+  #shapeMenu { position: fixed; left: 0; right: 0; top: calc(env(safe-area-inset-top, 0px) + 104px); display: flex; justify-content: center; }
+  #shapeMenu .box { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; padding: 10px; border-radius: 18px; background: rgba(14,16,21,.92); border: 1px solid var(--line); max-width: calc(100% - 20px); }
+  #shapeMenu button { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; min-width: 66px; height: 62px; padding: 0 8px; border-radius: 14px; border: 1px solid var(--line); }
+  #shapeMenu button b { font-size: 18px; font-weight: 900; }
+  #shapeMenu button small { font-size: 11px; color: var(--mute); font-weight: 700; }
+  #shapeMenu button.on { border-color: var(--accent); background: rgba(255,180,107,.16); }
+  #shapeMenu button.on b { color: var(--accent); }
   /* タイマーの数字・待っているときの知らせ */
   #cd { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); pointer-events: none; text-align: center; white-space: nowrap; }
   #cd.num { font-size: 132px; font-weight: 900; color: #fff; text-shadow: 0 2px 18px rgba(0,0,0,.6); }
@@ -147,9 +156,10 @@
 <div id="opts">
   <button id="gridBtn" class="chip" type="button" aria-pressed="false">＃ 線</button>
   <button id="timerBtn" class="chip" type="button">⏱ タイマー</button>
-  <button id="shapeBtn" class="chip" type="button">▭ ふつう</button>
+  <button id="shapeBtn" class="chip" type="button" aria-haspopup="true">▭ 4:3</button>
   <button id="steadyBtn" class="chip" type="button" aria-pressed="false">✋ ぶれ防止</button>
 </div>
+<div id="shapeMenu" hidden><div class="box" role="menu" aria-label="写真の形"></div></div>
 <div id="zooms"></div>
 <div id="bottom">
   <button id="thumb" class="empty" type="button" aria-label="撮った写真を見る"><span id="count" hidden>0</span></button>
@@ -238,7 +248,8 @@
   var photos = [];   // {id, t, w, h, thumb(Blob), saved}
   var urls = {};     // id → 一覧用の小さい画像の URL
   // 写真の形(ふつう=カメラのまま、ワイド=16:9、正方形)・タイマー・ぶれ防止
-  var SHAPES = { normal: ['▭ ふつう', 0, 'ふつう'], wide: ['▭ ワイド', 16 / 9, 'ワイド(横長・縦長)'], square: ['◻ 正方形', 1, '正方形'] };
+  // normal = カメラのまま(たいてい 4:3)。full = 画面いっぱい(見えているとおりに撮る)
+  var SHAPES = { normal: { r: 0 }, wide: { r: 16 / 9 }, square: { r: 1 }, full: { r: 'screen' } };
   var shape = 'normal', timerSec = 0, steady = false;
 
   function store(k, v) { try { if (v === undefined) return localStorage.getItem('shizuka.' + k); localStorage.setItem('shizuka.' + k, v); } catch (e) { return null; } }
@@ -363,26 +374,40 @@
 
   // ---------- 写真の形 ----------
   // 横長の画面なら横長に、縦長なら縦長に切り取る。まん中を残す
+  function screenRatio() { var st = $('stage'); return st.clientWidth / Math.max(1, st.clientHeight); }
   function cropOf(w, h) {
-    var r = SHAPES[shape][1];
+    var r = SHAPES[shape].r, want;
     if (!r) return { x: 0, y: 0, w: Math.round(w), h: Math.round(h) };
-    var want = w >= h ? r : 1 / r, cw = w, ch = h;
+    if (r === 'screen') want = screenRatio();          // 全画面: 画面と同じ形
+    else want = w >= h ? r : 1 / r;                    // 横長の画なら横長に、縦長なら縦長に
+    var cw = w, ch = h;
     if (w / h > want) cw = h * want; else ch = w / want;
     cw = Math.round(cw); ch = Math.round(ch);
     return { x: Math.round((w - cw) / 2), y: Math.round((h - ch) / 2), w: cw, h: ch };
+  }
+  // カメラのままの形を「4:3」のような言葉にする
+  function nativeName() {
+    var vw = video.videoWidth, vh = video.videoHeight;
+    if (!vw || !vh) return '4:3';
+    var r = Math.max(vw, vh) / Math.min(vw, vh);
+    var list = [[4 / 3, '4:3'], [16 / 9, '16:9'], [3 / 2, '3:2'], [1, '1:1']];
+    for (var i = 0; i < list.length; i++) if (Math.abs(r - list[i][0]) < 0.04) return list[i][1];
+    return 'カメラのまま';
   }
   // 写るところを画面に出す(ズームしていても、写るのは「ズーム前の映像の枠」と同じところ)
   function layoutFrame() {
     var f = $('frame'), vw = video.videoWidth, vh = video.videoHeight, st = $('stage');
     if (!vw || !vh) { f.hidden = true; return; }
-    var W = st.clientWidth, H = st.clientHeight, k = Math.min(W / vw, H / vh), dw = vw * k, dh = vh * k;
+    var full = shape === 'full';
+    video.classList.toggle('cover', full);
+    var W = st.clientWidth, H = st.clientHeight, k = full ? Math.max(W / vw, H / vh) : Math.min(W / vw, H / vh), dw = vw * k, dh = vh * k;
     var c = cropOf(dw, dh);
     f.style.left = ((W - dw) / 2 + c.x) + 'px'; f.style.top = ((H - dh) / 2 + c.y) + 'px';
     f.style.width = c.w + 'px'; f.style.height = c.h + 'px';
     f.hidden = false;
   }
-  video.addEventListener('loadedmetadata', layoutFrame);
-  video.addEventListener('resize', layoutFrame);
+  video.addEventListener('loadedmetadata', function () { layoutFrame(); shapeLabel(); });
+  video.addEventListener('resize', function () { layoutFrame(); shapeLabel(); });
   window.addEventListener('resize', layoutFrame);
 
   // ---------- 撮る ----------
@@ -524,7 +549,7 @@
       b.addEventListener('pointerdown', function () { longDone = false; clearTimeout(timer); timer = setTimeout(function () { longDone = true; if (navigator.vibrate) try { navigator.vibrate(20); } catch (e) {} if (!selMode) { selMode = true; selIds = []; } toggleSel(p); }, 500); });
       ['pointerup', 'pointercancel', 'pointerleave'].forEach(function (ev) { b.addEventListener(ev, function () { clearTimeout(timer); }); });
       b.addEventListener('contextmenu', function (e) { e.preventDefault(); });
-      b.onclick = function () { if (longDone) { longDone = false; return; } if (selMode) toggleSel(p); else openViewer(p); };
+      b.onclick = function () { if (longDone) { longDone = false; return; } if (selMode) toggleSel(p); else { openLayer('vw'); openViewer(p); } };
       g.appendChild(b);
     });
   }
@@ -655,9 +680,27 @@
     timerSec = v; var b = $('timerBtn');
     b.textContent = v ? '⏱ ' + v + '秒' : '⏱ タイマー'; b.classList.toggle('on', !!v); store('timer', String(v));
   }
+  function shapeName(v) { return v === 'normal' ? nativeName() : v === 'wide' ? '16:9' : v === 'square' ? '1:1' : '全画面'; }
+  function shapeLabel() {
+    var b = $('shapeBtn');
+    b.textContent = (shape === 'square' ? '◻ ' : shape === 'full' ? '⛶ ' : '▭ ') + shapeName(shape);
+    b.classList.toggle('on', shape !== 'normal');
+    if (!$('shapeMenu').hidden) buildShapeMenu();
+  }
   function setShape(v) {
-    shape = SHAPES[v] ? v : 'normal'; var b = $('shapeBtn');
-    b.textContent = SHAPES[shape][0]; b.classList.toggle('on', shape !== 'normal'); store('shape', shape); layoutFrame();
+    shape = SHAPES[v] ? v : 'normal'; store('shape', shape); layoutFrame(); shapeLabel();
+  }
+  function buildShapeMenu() {
+    var box = $('shapeMenu').firstChild, nat = nativeName();
+    box.innerHTML = '';
+    [['normal', 'カメラのまま'], ['wide', '横長・縦長'], ['square', '正方形'], ['full', '画面いっぱい']].forEach(function (o) {
+      if (o[0] === 'wide' && nat === '16:9') return;          // カメラのままが 16:9 なら、同じなので出さない
+      var b = document.createElement('button'); b.type = 'button'; b.setAttribute('role', 'menuitemradio');
+      b.setAttribute('aria-checked', shape === o[0]); b.className = shape === o[0] ? 'on' : '';
+      b.innerHTML = '<b>' + shapeName(o[0]) + '</b><small>' + o[1] + '</small>';
+      b.onclick = function () { setShape(o[0]); closeLayer(); toast('写真の形: ' + shapeName(o[0]) + (o[0] === 'full' ? '(見えているとおりに撮ります)' : '')); };
+      box.appendChild(b);
+    });
   }
   function setSteady(v) {
     steady = v; var b = $('steadyBtn'); b.classList.toggle('on', v); b.setAttribute('aria-pressed', v); store('steady', v ? '1' : '0');
@@ -667,9 +710,11 @@
     toast(v ? 'タイマー ' + v + '秒(音は鳴りません)' : 'タイマー なし'); this.blur();
   };
   $('shapeBtn').onclick = function () {
-    var v = shape === 'normal' ? 'wide' : shape === 'wide' ? 'square' : 'normal'; setShape(v);
-    toast('写真の形: ' + SHAPES[v][2]); this.blur();
+    if (!$('shapeMenu').hidden) closeLayer(); else { buildShapeMenu(); openLayer('menu'); show('shapeMenu', true); }
+    this.blur();
   };
+  // 形のえらび画面の外をさわったら閉じる
+  $('stage').addEventListener('pointerdown', function () { if (!$('shapeMenu').hidden) closeLayer(); });
   $('steadyBtn').onclick = function () {
     setSteady(!steady); toast(steady ? 'ぶれ防止: 止まった瞬間に撮ります' : 'ぶれ防止: なし'); this.blur();
   };
@@ -677,11 +722,11 @@
   $('gridBtn').onclick = function () {
     var on = $('grid').hidden; $('grid').hidden = !on; this.classList.toggle('on', on); this.setAttribute('aria-pressed', on); store('grid', on ? '1' : '0'); this.blur();
   };
-  $('thumb').onclick = function () { selMode = false; selIds = []; openGallery(); };
-  $('toGallery').onclick = function () { selMode = false; selIds = []; openGallery(); };
+  $('thumb').onclick = function () { selMode = false; selIds = []; openLayer('gal'); openGallery(); };
+  $('toGallery').onclick = function () { selMode = false; selIds = []; openLayer('gal'); openGallery(); };
   $('galBack').onclick = function () {
     if (selMode) { selIds = selIds.length === photos.length ? [] : photos.map(function (p) { return p.id; }); preload(selected()); openGallery(); return; }
-    show('gallery', false); if (!stream) startCam();
+    closeLayer();
   };
   $('selBtn').onclick = function () { selMode = !selMode; selIds = []; openGallery(); };
   $('selSave').onclick = function () {
@@ -693,16 +738,49 @@
     var un = list.filter(function (p) { return !p.saved; }).length;
     ask(list.length + '枚を、このアプリから消します。' + (un ? '(そのうち ' + un + '枚は、まだ保存していません。消すと元にもどせません)' : '(写真アプリに保存したものは残ります)'), function () { delMany(list); });
   };
-  $('vwBack').onclick = function () { openGallery(); };
+  $('vwBack').onclick = function () { closeLayer(); };
   $('vwSave').onclick = function () { var p = cur; saveList([p]).then(function () { if (p.saved) { toast('保存しました'); openViewer(p); } }); };
   $('vwDel').onclick = function () {
     var p = cur;
-    ask(p.saved ? 'この写真を、このアプリから消します。(写真アプリに保存したものは残ります)' : 'この写真は、まだ保存していません。消すと元にもどせません。消しますか?', function () { del(p); });
+    ask(p.saved ? 'この写真を、このアプリから消します。(写真アプリに保存したものは残ります)' : 'この写真は、まだ保存していません。消すと元にもどせません。消しますか?', function () { del(p); if (layer() === 'vw') { skipPop = true; history.back(); } });
   };
   $('saveAll').onclick = function () {
     var list = photos.filter(function (p) { return !p.saved; });
     if (list.length) saveList(list).then(function () { if (list.every(function (p) { return p.saved; })) toast('保存しました'); openGallery(); });
   };
+  // ---------- スマホの「もどる」 ----------
+  // アプリの中で画面を開くたびに、スマホに「前の画面」を知らせる(history)。
+  // これがないと「もどる」でアプリごと閉じてしまう(2026-11-09 ノブさん)。
+  // 一番下に「カメラ」、その上に見張り(guard)を置き、見張りまでもどったら「もう一度で閉じます」と出す。
+  var skipPop = false, lastExitTry = 0;
+  function layer() { return (history.state && history.state.shizuka) || ''; }
+  function openLayer(name) { try { history.pushState({ shizuka: name }, ''); } catch (e) {} }
+  function closeLayer() { if (layer() && layer() !== 'guard' && layer() !== 'root') history.back(); else render(layer()); }
+  function render(name) {
+    show('confirm', false);
+    show('shapeMenu', name === 'menu');
+    if (name === 'vw' && cur) { show('gallery', true); show('viewer', true); return; }
+    if (name === 'gal' || name === 'vw') { openGallery(); return; }   // openGallery は1枚の画面を閉じる
+    show('viewer', false);
+    if (!$('gallery').hidden) { show('gallery', false); selMode = false; selIds = []; if (!stream && store('started') === '1') startCam(); }
+  }
+  window.addEventListener('popstate', function () {
+    if (skipPop) { skipPop = false; return; }
+    var name = layer();
+    if (name === 'root') {                      // カメラの画面で「もどる」
+      if (Date.now() - lastExitTry < 2500) { history.back(); return; }   // 続けて押した → 閉じる
+      lastExitTry = Date.now();
+      cancelJob(); stopBurst();
+      toast('もう一度もどると、アプリを閉じます');
+      openLayer('guard');
+      return;
+    }
+    render(name);
+  });
+  try {
+    if (!history.state || !history.state.shizuka) { history.replaceState({ shizuka: 'root' }, ''); history.pushState({ shizuka: 'guard' }, ''); }
+  } catch (e) {}
+
   // 音量ボタンは、ブラウザのアプリからは使えない(スマホの決まり)ので、画面の白い丸で撮る。
   document.addEventListener('keydown', function (e) { if ((e.key === ' ' || e.key === 'Enter') && stream && $('gallery').hidden && !(e.target && e.target.tagName === 'BUTTON')) { e.preventDefault(); takeOne(); } });
 
@@ -715,6 +793,15 @@
   if (store('grid') === '1') { $('grid').hidden = false; $('gridBtn').classList.add('on'); }
   setTimer(+store('timer') === 3 || +store('timer') === 10 ? +store('timer') : 0);
   setShape(store('shape') || 'normal');
+  // Android のブラウザ(ホーム画面に入れていないとき)は、カメラをひらくときに上と下のバーを隠して全画面にする
+  // (iPhone の Safari では隠せない。ホーム画面に入れると全画面になる)
+  function goFull() {
+    var d = document.documentElement, standalone = window.matchMedia && (matchMedia('(display-mode: standalone)').matches || matchMedia('(display-mode: fullscreen)').matches);
+    if (isIOS || standalone || isLine || document.fullscreenElement || !d.requestFullscreen) return;
+    try { var p = d.requestFullscreen({ navigationUI: 'hide' }); if (p && p.catch) p.catch(function () {}); } catch (e) {}
+  }
+  $('startBtn').addEventListener('click', goFull);
+  document.addEventListener('fullscreenchange', layoutFrame);
   setSteady(store('steady') === '1');
   getAll().then(function (list) { photos = list.sort(function (a, b) { return b.t - a.t; }); refreshThumb(); }, function () {});
 
