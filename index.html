@@ -87,6 +87,7 @@
   #grid2 { flex: 1; overflow-y: auto; display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px; padding: 3px; align-content: start; }
   #grid2 button { position: relative; aspect-ratio: 1; background: #222 center/cover no-repeat; border-radius: 4px; }
   #grid2 button { -webkit-touch-callout: none; }
+  #vwImg { -webkit-touch-callout: default; }
   #grid2 button.sel { outline: 3px solid var(--accent); outline-offset: -3px; }
   #grid2.selecting button:not(.sel) { opacity: .55; }
   #grid2 button .ck { position: absolute; top: 5px; right: 5px; width: 24px; height: 24px; border-radius: 50%; border: 2px solid #fff; background: rgba(0,0,0,.35);
@@ -391,6 +392,7 @@
     $('galBack').textContent = selecting ? '全部' : '← カメラ';
     $('saveAll').parentNode.hidden = !unsaved;
     $('saveAll').textContent = 'まだ保存していない写真を保存(' + unsaved + '枚)';
+    if (unsaved && unsaved <= 10) preload(photos.filter(function (p) { return !p.saved; }));
     $('galNote').hidden = selecting;
     $('selBar').hidden = !selecting;
     $('selSave').disabled = $('selDel').disabled = !selIds.length;
@@ -415,7 +417,7 @@
   var selMode = false, selIds = [];
   function toggleSel(p) {
     var i = selIds.indexOf(p.id);
-    if (i >= 0) selIds.splice(i, 1); else selIds.push(p.id);
+    if (i >= 0) { selIds.splice(i, 1); forget([p]); } else { selIds.push(p.id); preload([p]); }
     var y = $('grid2').scrollTop; openGallery(); $('grid2').scrollTop = y;
   }
   function selected() { return photos.filter(function (p) { return selIds.indexOf(p.id) >= 0; }); }
@@ -429,24 +431,55 @@
     $('vwImg').src = urlOf(p);
     getFull(p.id).then(function (b) { if (!b || cur !== p) return; if (curUrl) URL.revokeObjectURL(curUrl); curUrl = URL.createObjectURL(b); $('vwImg').src = curUrl; });
     $('vwSave').textContent = p.saved ? '📥 もう一度保存' : '📥 写真アプリに保存';
+    preload([p]);
   }
 
   // ---------- 保存(共有の画面で「画像を保存」) ----------
+  // iPhone は「押したその瞬間」にしか共有の画面を開かせてくれない。
+  // 押してから写真を取り出していると間に合わず、断られる(2026-11-09 ノブさん「iPhone でダウンロードできない」)。
+  // → 写真は先に取り出しておく。間に合わなかったときは「保存する」をもう一度押してもらう。
+  var fileCache = {};
+  function loadFile(p) {
+    if (fileCache[p.id]) return Promise.resolve(fileCache[p.id]);
+    return getFull(p.id).then(function (b) { var f = new File([b], fname(p.t), { type: 'image/jpeg' }); fileCache[p.id] = f; return f; });
+  }
+  function preload(list) { list.forEach(function (p) { loadFile(p).catch(function () {}); }); }
+  function forget(list) { list.forEach(function (p) { delete fileCache[p.id]; }); }
   function saveList(list) {
-    return Promise.all(list.map(function (p) { return getFull(p.id).then(function (b) { return new File([b], fname(p.t), { type: 'image/jpeg' }); }); }))
-      .then(function (files) {
-        var canShare = navigator.canShare && navigator.share && navigator.canShare({ files: files });
-        if (canShare) {
-          if (isIOS) toast('出てきた画面で「画像を保存」を押してください');
-          // スマホによっては、保存せずに戻っても「できた」と返ってくる。だから、本人に聞いてから「保存ずみ」にする
-          return navigator.share({ files: files }).then(function () { return askSaved(files.length); }, function (e) { if (e && e.name === 'AbortError') return false; return download(files); });
-        }
-        return download(files);
-      }).then(function (ok) {
-        if (!ok) return;
-        list.forEach(function (p) { p.saved = true; });
-        return tx(['photos'], 'readwrite', function (x) { list.forEach(function (p) { x.objectStore('photos').put(p); }); });
+    var files = list.map(function (p) { return fileCache[p.id]; });
+    var go;
+    if (files.every(Boolean)) go = shareFiles(files);          // 準備ずみ → 押した瞬間に開く
+    else go = Promise.all(list.map(loadFile)).then(function (fs) {
+      return new Promise(function (res) {
+        ask((fs.length > 1 ? fs.length + '枚の' : '') + '写真の準備ができました。「保存する」を押してください。', function () { res(shareFiles(fs)); }, '保存する', 'やめる', function () { res(false); });
       });
+    });
+    return go.then(function (ok) {
+      if (!ok) return;
+      list.forEach(function (p) { p.saved = true; }); forget(list);
+      return tx(['photos'], 'readwrite', function (x) { list.forEach(function (p) { x.objectStore('photos').put(p); }); });
+    });
+  }
+  // 押した瞬間に呼ぶこと(この中で待たない)
+  function shareFiles(files, again) {
+    var canShare = false;
+    try { canShare = !!(navigator.share && navigator.canShare && navigator.canShare({ files: files })); } catch (e) {}
+    if (!canShare) return Promise.resolve(isIOS ? longPressHelp() : download(files));
+    if (isIOS) toast('出てきた画面で「' + (files.length > 1 ? files.length + '枚の画像を保存' : '画像を保存') + '」を押してください');
+    // スマホによっては、保存せずに戻っても「できた」と返ってくる。だから、本人に聞いてから「保存ずみ」にする
+    return navigator.share({ files: files }).then(function () { return askSaved(files.length); }, function (e) {
+      if (e && e.name === 'AbortError') return false;              // 自分でやめた
+      if (!again) return new Promise(function (res) {               // 断られた → もう一度押してもらう
+        ask('もう一度「保存する」を押してください。', function () { res(shareFiles(files, true)); }, '保存する', 'やめる', function () { res(false); });
+      });
+      return isIOS ? longPressHelp() : download(files);
+    });
+  }
+  // 最後の手: 1枚の画面で、写真を長押し →「写真に追加」
+  function longPressHelp() {
+    return new Promise(function (res) {
+      ask('うまく開けませんでした。1枚ずつ開いて、写真を長押しすると「写真に追加」で保存できます。', function () { res(false); }, 'わかった', '閉じる', function () { res(false); });
+    });
   }
   function download(files) {
     files.forEach(function (f, i) {
@@ -474,7 +507,7 @@
   function del(p) { delMany([p]); }
   function delMany(list) {
     tx(['photos', 'full'], 'readwrite', function (x) { list.forEach(function (p) { x.objectStore('photos').delete(p.id); x.objectStore('full').delete(p.id); }); }).then(function () {
-      photos = photos.filter(function (q) { return list.indexOf(q) < 0; });
+      photos = photos.filter(function (q) { return list.indexOf(q) < 0; }); forget(list);
       list.forEach(function (p) { if (urls[p.id]) { URL.revokeObjectURL(urls[p.id]); delete urls[p.id]; } });
       selMode = false; selIds = [];
       refreshThumb(); openGallery(); toast(list.length > 1 ? list.length + '枚 消しました' : '消しました');
@@ -492,7 +525,7 @@
   $('thumb').onclick = function () { selMode = false; selIds = []; openGallery(); };
   $('toGallery').onclick = function () { selMode = false; selIds = []; openGallery(); };
   $('galBack').onclick = function () {
-    if (selMode) { selIds = selIds.length === photos.length ? [] : photos.map(function (p) { return p.id; }); openGallery(); return; }
+    if (selMode) { selIds = selIds.length === photos.length ? [] : photos.map(function (p) { return p.id; }); preload(selected()); openGallery(); return; }
     show('gallery', false); if (!stream) startCam();
   };
   $('selBtn').onclick = function () { selMode = !selMode; selIds = []; openGallery(); };
