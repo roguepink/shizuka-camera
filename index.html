@@ -36,15 +36,22 @@
   /* 写るところ(写真の形)。外がわは暗くする */
   #frame { position: absolute; pointer-events: none; box-shadow: 0 0 0 200vmax rgba(0,0,0,.55); }
   /* 日付(写真に入るのと同じ見た目を、枠の右下に出す) */
+  @font-face { font-family: 'SZ Digital'; src: url('fonts/digital.woff2') format('woff2'); font-weight: 100 900; font-display: block; }
+  @font-face { font-family: 'SZ Maru'; src: url('fonts/maru.woff2') format('woff2'); font-weight: 100 900; font-display: block; }
+  @font-face { font-family: 'SZ Mincho'; src: url('fonts/mincho.woff2') format('woff2'); font-weight: 100 900; font-display: block; }
+  @font-face { font-family: 'SZ Tegaki'; src: url('fonts/tegaki.woff2') format('woff2'); font-weight: 100 900; font-display: block; }
+  #stampMenu .sample { display: flex; align-items: center; justify-content: center; height: 46px; border-radius: 12px; font-size: 21px; letter-spacing: .03em; white-space: nowrap; overflow: hidden;
+    background: linear-gradient(135deg, #4b6a3c, #2c4157); text-shadow: 0 0 2px rgba(0,0,0,.9), 1px 1px 3px rgba(0,0,0,.8); }
+  #stampMenu .row.font button { font-size: 15px; }
+  #stampMenu .close { height: 38px; border-radius: 12px; border: 1px solid var(--line); font-size: 14px; font-weight: 800; color: var(--mute); background: transparent; flex-direction: row; min-width: 0; }
   #stampMenu .box { flex-direction: column; align-items: stretch; gap: 6px; }
   #stampMenu .row { display: flex; align-items: center; gap: 6px; }
   #stampMenu .row > span { width: 3.2em; font-size: 13px; font-weight: 800; color: var(--mute); }
   #stampMenu .row button { min-width: 0; flex: 1; height: 42px; font-size: 14px; font-weight: 800; flex-direction: row; gap: 0; padding: 0 6px; }
   #stampMenu .row button.on { color: var(--accent); }
   #stampMenu .row button { white-space: nowrap; }
-  @media (max-width: 359px) { #stampMenu .row button { font-size: 12.5px; padding: 0 3px; } #stampMenu .dot { width: 10px; height: 10px; margin-right: 3px; } #stampMenu .row > span { width: 2.8em; font-size: 12px; } }
   #stampMenu .dot { display: inline-block; width: 12px; height: 12px; border-radius: 50%; margin-right: 5px; vertical-align: -1px; border: 1px solid rgba(0,0,0,.4); }
-  #stampPrev { position: absolute; font: 700 16px/1 ui-monospace, Menlo, Consolas, monospace; color: #ff9a3c; letter-spacing: .04em;
+  #stampPrev { position: absolute; font: 700 16px/1 'SZ Digital', ui-monospace, Menlo, monospace; color: #ff9a3c; letter-spacing: .04em;
     text-shadow: 0 0 2px rgba(0,0,0,.9), 1px 1px 3px rgba(0,0,0,.8); white-space: nowrap; }
   #grid { position: absolute; inset: 0; pointer-events: none;
     background-image: linear-gradient(to right, transparent calc(33.33% - .5px), rgba(255,255,255,.35) calc(33.33% - .5px), rgba(255,255,255,.35) calc(33.33% + .5px), transparent calc(33.33% + .5px), transparent calc(66.66% - .5px), rgba(255,255,255,.35) calc(66.66% - .5px), rgba(255,255,255,.35) calc(66.66% + .5px), transparent calc(66.66% + .5px)),
@@ -156,6 +163,24 @@
   #confirm .box { width: 100%; max-width: 340px; padding: 22px; border-radius: 18px; background: #1b1e26; text-align: center; }
   #confirm p { margin: 0 0 18px; line-height: 1.7; }
   #confirm .row { display: flex; gap: 10px; justify-content: center; }
+  /* ---------- 日付の設定画面(いちばん前に出す・画面からはみ出さない) ---------- */
+  #stampMenu { z-index: 40; bottom: calc(env(safe-area-inset-bottom, 0px) + 10px); align-items: flex-start; pointer-events: none; }
+  #stampMenu .box { background: rgba(14,16,21,.97); pointer-events: auto; max-height: 100%; overflow-y: auto; -webkit-overflow-scrolling: touch; box-shadow: 0 10px 30px rgba(0,0,0,.5); }
+  #stampMenu .row > span { width: 3.6em; flex-shrink: 0; white-space: nowrap; }
+  #stampMenu .row.font button { font-size: 14px; }
+  @media (max-width: 359px) {
+    #stampMenu .row button, #stampMenu .row.font button { font-size: 12px; padding: 0 2px; }
+    #stampMenu .dot { width: 10px; height: 10px; margin-right: 3px; }
+    #stampMenu .row > span { width: 3.2em; font-size: 11.5px; }
+    #stampMenu .row { gap: 4px; }
+  }
+  @media (max-height: 700px) {   /* 背の低いスマホ: 下から出す(上のボタンに重ならないように) */
+    #stampMenu { top: calc(env(safe-area-inset-top, 0px) + 150px); align-items: flex-end; }
+    #stampMenu .box { gap: 5px; padding: 8px; }
+    #stampMenu .row button { height: 36px; }
+    #stampMenu .sample { height: 38px; font-size: 18px; }
+    #stampMenu .close { height: 34px; }
+  }
 </style>
 </head>
 <body>
@@ -276,6 +301,15 @@
   var SHAPES = { normal: { r: 0 }, wide: { r: 16 / 9 }, square: { r: 1 }, full: { r: 'screen' } };
   var shape = 'normal', timerSec = 0, steady = false, burstOn = false, stampOn = false;
   var stampColor = 'orange', stampTime = true, stampPos = 'r', stampDay = 'none';
+  var STAMP_FONTS = { digital: ['デジタル', 'SZ Digital'], maru: ['丸い字', 'SZ Maru'], mincho: ['明朝', 'SZ Mincho'], tegaki: ['手書き', 'SZ Tegaki'] };
+  var stampFont = 'digital';
+  function fontCss(k) { return "'" + STAMP_FONTS[k][1] + "', ui-monospace, Menlo, monospace"; }
+  // 字のデータを先に読みこんでおく(撮った瞬間に、まだ読めていない字で書かないように)
+  var fontsReady = false;
+  try {
+    Promise.all(Object.keys(STAMP_FONTS).map(function (k) { return document.fonts.load('700 20px ' + fontCss(k), '2026.11.10(火)MON'); }))
+      .then(function () { fontsReady = true; layoutFrame(); }, function () {});
+  } catch (e) {}
   var DAYS = { ja: ['日', '月', '火', '水', '木', '金', '土'], en: ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'] };
   var STAMP_COLORS = { orange: ['オレンジ', '#ff9a3c'], white: ['白', '#ffffff'], yellow: ['黄色', '#ffe14d'] };
 
@@ -447,7 +481,7 @@
   function drawStamp(cv, t) {
     var g = cv.getContext('2d'), fs = stampSize(cv.width, cv.height), m = Math.round(fs * 0.8), txt = stampText(t);
     g.save();
-    g.font = '700 ' + fs + 'px ui-monospace, Menlo, Consolas, monospace';
+    g.font = '700 ' + fs + 'px ' + fontCss(stampFont);
     g.textAlign = stampPos === 'l' ? 'left' : 'right'; g.textBaseline = 'bottom';
     g.shadowColor = 'rgba(0,0,0,.85)'; g.shadowBlur = Math.max(2, fs * 0.15); g.shadowOffsetX = g.shadowOffsetY = Math.max(1, fs * 0.05);
     g.fillStyle = STAMP_COLORS[stampColor][1]; g.fillText(txt, stampPos === 'l' ? m : cv.width - m, cv.height - m);
@@ -458,10 +492,14 @@
     var fs = stampSize(w, h); e.style.fontSize = fs + 'px';
     var m = Math.round(fs * 0.8) + 'px'; e.style.bottom = m;
     e.style.left = stampPos === 'l' ? m : 'auto'; e.style.right = stampPos === 'l' ? 'auto' : m;
-    e.style.color = STAMP_COLORS[stampColor][1];
+    e.style.color = STAMP_COLORS[stampColor][1]; e.style.fontFamily = fontCss(stampFont);
     e.textContent = stampText(Date.now());
   }
-  setInterval(function () { if (stampOn) $('stampPrev').textContent = stampText(Date.now()); }, 20000);
+  setInterval(function () {
+    if (!stampOn) return;
+    var t = stampText(Date.now()); $('stampPrev').textContent = t;
+    var smp = document.querySelector('#stampMenu .sample'); if (smp) smp.textContent = t;
+  }, 20000);
   video.addEventListener('loadedmetadata', function () { layoutFrame(); shapeLabel(); });
   video.addEventListener('resize', function () { layoutFrame(); shapeLabel(); });
   window.addEventListener('resize', layoutFrame);
@@ -827,25 +865,39 @@
   // 「📅 日付」を押すと、入れる・入れない/色/時刻/場所 を選ぶ小さな画面が出る(2026-11-10 ノブさん)
   function buildStampMenu() {
     var box = $('stampMenu').firstChild; box.innerHTML = '';
-    function row(label, opts, curV, set) {
-      var d = document.createElement('div'); d.className = 'row';
+    if (stampOn) {   // 写真に入る見え方を、いちばん上に大きく出す
+      var smp = document.createElement('div'); smp.className = 'sample';
+      smp.style.fontFamily = fontCss(stampFont); smp.style.fontWeight = '700'; smp.style.color = STAMP_COLORS[stampColor][1];
+      smp.textContent = stampText(Date.now()); smp.setAttribute('aria-label', '見本: ' + smp.textContent);
+      box.appendChild(smp);
+    }
+    function row(label, opts, curV, set, cls) {
+      var d = document.createElement('div'); d.className = 'row' + (cls ? ' ' + cls : '');
       d.innerHTML = '<span>' + label + '</span>';
       opts.forEach(function (o) {
         var b = document.createElement('button'); b.type = 'button'; b.setAttribute('role', 'menuitemradio');
         b.setAttribute('aria-checked', curV === o[0]); b.className = curV === o[0] ? 'on' : '';
         b.innerHTML = o[1];
+        if (o[2]) { b.style.fontFamily = o[2]; b.style.fontWeight = '700'; }
         b.onclick = function () { set(o[0]); buildStampMenu(); };
         d.appendChild(b);
       });
       box.appendChild(d);
     }
     row('日付', [[true, '入れる'], [false, '入れない']], stampOn, function (v) { setStamp(v); });
-    if (!stampOn) return;
+    if (!stampOn) { closeBtn(); return; }
+    row('字の形', Object.keys(STAMP_FONTS).map(function (k) { return [k, STAMP_FONTS[k][0], fontCss(k)]; }), stampFont,
+      function (v) { stampFont = v; store('stampFont', v); layoutFrame(); }, 'font');
     row('色', Object.keys(STAMP_COLORS).map(function (k) { return [k, '<i class="dot" style="background:' + STAMP_COLORS[k][1] + '"></i>' + STAMP_COLORS[k][0]]; }), stampColor,
       function (v) { stampColor = v; store('stampColor', v); layoutFrame(); });
     row('曜日', [['none', 'なし'], ['ja', '日本語'], ['en', '英語']], stampDay, function (v) { stampDay = v; store('stampDay', v); layoutFrame(); });
     row('時刻', [[true, 'あり'], [false, 'なし']], stampTime, function (v) { stampTime = v; store('stampTime', v ? '1' : '0'); layoutFrame(); });
     row('場所', [['l', '左下'], ['r', '右下']], stampPos, function (v) { stampPos = v; store('stampPos', v); layoutFrame(); });
+    closeBtn();
+    function closeBtn() {
+      var c = document.createElement('button'); c.type = 'button'; c.className = 'close'; c.textContent = '✕ とじる';
+      c.onclick = function () { closeLayer(); }; box.appendChild(c);
+    }
   }
   $('stampBtn').onclick = function () {
     if (!$('stampMenu').hidden) closeLayer(); else { buildStampMenu(); openLayer('stamp'); show('stampMenu', true); }
@@ -997,6 +1049,7 @@
   stampTime = store('stampTime') !== '0';
   stampPos = store('stampPos') === 'l' ? 'l' : 'r';
   stampDay = DAYS[store('stampDay')] ? store('stampDay') : 'none';
+  if (STAMP_FONTS[store('stampFont')]) stampFont = store('stampFont');
   setStamp(store('stamp') === '1');
   getAll().then(function (list) { photos = list.sort(function (a, b) { return b.t - a.t; }); refreshThumb(); }, function () {});
 

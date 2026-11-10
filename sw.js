@@ -3,8 +3,8 @@
    ゲームは index.html 1枚で完結しているので、それと アイコン類だけを覚えておく。
    ゲームを直しただけなら VERSION は そのままでいい(開くたびに、まずネットで最新を取りにいくので)。
    FILES(覚えるファイル)を変えたときだけ VERSION を 1つ上げる(古い覚えを 一斉に捨てる)。 */
-const VERSION = 'shizuka-camera-v3';
-const FILES = ['./', 'index.html', 'install.js', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png', 'maskable-512.png', 'apple-touch-icon.png', 'shots/1.jpg', 'shots/2.jpg', 'shots/3.jpg'];
+const VERSION = 'shizuka-camera-v4';
+const FILES = ['./', 'index.html', 'install.js', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png', 'maskable-512.png', 'apple-touch-icon.png', 'shots/1.jpg', 'shots/2.jpg', 'shots/3.jpg', 'fonts/digital.woff2', 'fonts/maru.woff2', 'fonts/mincho.woff2', 'fonts/tegaki.woff2'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(VERSION).then((c) => c.addAll(FILES)).then(() => self.skipWaiting()));
