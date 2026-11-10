@@ -36,6 +36,14 @@
   /* 写るところ(写真の形)。外がわは暗くする */
   #frame { position: absolute; pointer-events: none; box-shadow: 0 0 0 200vmax rgba(0,0,0,.55); }
   /* 日付(写真に入るのと同じ見た目を、枠の右下に出す) */
+  #stampMenu .box { flex-direction: column; align-items: stretch; gap: 6px; }
+  #stampMenu .row { display: flex; align-items: center; gap: 6px; }
+  #stampMenu .row > span { width: 3.2em; font-size: 13px; font-weight: 800; color: var(--mute); }
+  #stampMenu .row button { min-width: 0; flex: 1; height: 42px; font-size: 14px; font-weight: 800; flex-direction: row; gap: 0; padding: 0 6px; }
+  #stampMenu .row button.on { color: var(--accent); }
+  #stampMenu .row button { white-space: nowrap; }
+  @media (max-width: 359px) { #stampMenu .row button { font-size: 12.5px; padding: 0 3px; } #stampMenu .dot { width: 10px; height: 10px; margin-right: 3px; } #stampMenu .row > span { width: 2.8em; font-size: 12px; } }
+  #stampMenu .dot { display: inline-block; width: 12px; height: 12px; border-radius: 50%; margin-right: 5px; vertical-align: -1px; border: 1px solid rgba(0,0,0,.4); }
   #stampPrev { position: absolute; font: 700 16px/1 ui-monospace, Menlo, Consolas, monospace; color: #ff9a3c; letter-spacing: .04em;
     text-shadow: 0 0 2px rgba(0,0,0,.9), 1px 1px 3px rgba(0,0,0,.8); white-space: nowrap; }
   #grid { position: absolute; inset: 0; pointer-events: none;
@@ -58,13 +66,15 @@
   #opts .chip { height: 36px; padding: 0 11px; font-size: 13.5px; }
   @media (max-width: 359px) { #opts { gap: 4px; padding: 0 6px; } #opts .chip { padding: 0 7px; font-size: 12px; gap: 3px; } }
   /* 写真の形をえらぶ */
-  #shapeMenu { position: fixed; left: 0; right: 0; top: calc(env(safe-area-inset-top, 0px) + 104px); display: flex; justify-content: center; }
-  #shapeMenu .box { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; padding: 10px; border-radius: 18px; background: rgba(14,16,21,.92); border: 1px solid var(--line); max-width: calc(100% - 20px); }
-  #shapeMenu button { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; min-width: 66px; height: 62px; padding: 0 8px; border-radius: 14px; border: 1px solid var(--line); }
-  #shapeMenu button b { font-size: 18px; font-weight: 900; }
-  #shapeMenu button small { font-size: 11px; color: var(--mute); font-weight: 700; }
-  #shapeMenu button.on { border-color: var(--accent); background: rgba(255,180,107,.16); }
-  #shapeMenu button.on b { color: var(--accent); }
+  #shapeMenu, #stampMenu { position: fixed; left: 0; right: 0; top: calc(env(safe-area-inset-top, 0px) + 104px); display: flex; justify-content: center; }
+  #shapeMenu .box, #stampMenu .box { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; padding: 10px; border-radius: 18px; background: rgba(14,16,21,.92); border: 1px solid var(--line); max-width: calc(100% - 20px); }
+  #shapeMenu button, #stampMenu button { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; min-width: 66px; height: 62px; padding: 0 8px; border-radius: 14px; border: 1px solid var(--line); }
+  #shapeMenu button b, #stampMenu button b { font-size: 18px; font-weight: 900; }
+  #shapeMenu button small, #stampMenu button small { font-size: 11px; color: var(--mute); font-weight: 700; }
+  #shapeMenu button.on, #stampMenu button.on { border-color: var(--accent); background: rgba(255,180,107,.16); }
+  #stampMenu { top: calc(env(safe-area-inset-top, 0px) + 150px); }
+  #stampMenu .box { width: min(380px, calc(100% - 20px)); flex-direction: column; flex-wrap: nowrap; align-items: stretch; gap: 6px; }
+  #shapeMenu button.on b, #stampMenu button.on b { color: var(--accent); }
   /* タイマーの数字・待っているときの知らせ */
   #cd { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); pointer-events: none; text-align: center; white-space: nowrap; }
   #cd.num { font-size: 132px; font-weight: 900; color: #fff; text-shadow: 0 2px 18px rgba(0,0,0,.6); }
@@ -169,6 +179,7 @@
   <button id="stampBtn" class="chip" type="button" aria-pressed="false">📅 日付</button>
 </div>
 <div id="shapeMenu" hidden><div class="box" role="menu" aria-label="写真の形"></div></div>
+<div id="stampMenu" hidden><div class="box" role="menu" aria-label="日付の入れ方"></div></div>
 <div id="zooms"></div>
 <div id="bottom">
   <button id="thumb" class="empty" type="button" aria-label="撮った写真を見る"><span id="count" hidden>0</span></button>
@@ -264,6 +275,8 @@
   // normal = カメラのまま(たいてい 4:3)。full = 画面いっぱい(見えているとおりに撮る)
   var SHAPES = { normal: { r: 0 }, wide: { r: 16 / 9 }, square: { r: 1 }, full: { r: 'screen' } };
   var shape = 'normal', timerSec = 0, steady = false, burstOn = false, stampOn = false;
+  var stampColor = 'orange', stampTime = true, stampPos = 'r';
+  var STAMP_COLORS = { orange: ['オレンジ', '#ff9a3c'], white: ['白', '#ffffff'], yellow: ['黄色', '#ffe14d'] };
 
   function store(k, v) { try { if (v === undefined) return localStorage.getItem('shizuka.' + k); localStorage.setItem('shizuka.' + k, v); } catch (e) { return null; } }
   function toast(msg) { var t = $('toast'); t.textContent = msg; t.classList.add('on'); clearTimeout(toast.tm); toast.tm = setTimeout(function () { t.classList.remove('on'); }, 1600); }
@@ -426,22 +439,24 @@
   // 写真の右下に「2026.11.10 14:30」。大きさは写真の短い辺の 4.5%(写真の大きさが変わっても同じ見え方)
   function stampText(t) {
     var d = new Date(t), z = function (n) { return ('0' + n).slice(-2); };
-    return d.getFullYear() + '.' + z(d.getMonth() + 1) + '.' + z(d.getDate()) + ' ' + z(d.getHours()) + ':' + z(d.getMinutes());
+    return d.getFullYear() + '.' + z(d.getMonth() + 1) + '.' + z(d.getDate()) + (stampTime ? ' ' + z(d.getHours()) + ':' + z(d.getMinutes()) : '');
   }
   function stampSize(w, h) { return Math.max(10, Math.round(Math.min(w, h) * 0.045)); }
   function drawStamp(cv, t) {
     var g = cv.getContext('2d'), fs = stampSize(cv.width, cv.height), m = Math.round(fs * 0.8), txt = stampText(t);
     g.save();
     g.font = '700 ' + fs + 'px ui-monospace, Menlo, Consolas, monospace';
-    g.textAlign = 'right'; g.textBaseline = 'bottom';
+    g.textAlign = stampPos === 'l' ? 'left' : 'right'; g.textBaseline = 'bottom';
     g.shadowColor = 'rgba(0,0,0,.85)'; g.shadowBlur = Math.max(2, fs * 0.15); g.shadowOffsetX = g.shadowOffsetY = Math.max(1, fs * 0.05);
-    g.fillStyle = '#ff9a3c'; g.fillText(txt, cv.width - m, cv.height - m);
+    g.fillStyle = STAMP_COLORS[stampColor][1]; g.fillText(txt, stampPos === 'l' ? m : cv.width - m, cv.height - m);
     g.restore();
   }
   function placeStamp(w, h) {
     var e = $('stampPrev'); e.hidden = !stampOn; if (!stampOn || !w) return;
     var fs = stampSize(w, h); e.style.fontSize = fs + 'px';
-    e.style.right = e.style.bottom = Math.round(fs * 0.8) + 'px';
+    var m = Math.round(fs * 0.8) + 'px'; e.style.bottom = m;
+    e.style.left = stampPos === 'l' ? m : 'auto'; e.style.right = stampPos === 'l' ? 'auto' : m;
+    e.style.color = STAMP_COLORS[stampColor][1];
     e.textContent = stampText(Date.now());
   }
   setInterval(function () { if (stampOn) $('stampPrev').textContent = stampText(Date.now()); }, 20000);
@@ -797,7 +812,7 @@
     this.blur();
   };
   // 形のえらび画面の外をさわったら閉じる
-  $('stage').addEventListener('pointerdown', function () { if (!$('shapeMenu').hidden) closeLayer(); });
+  $('stage').addEventListener('pointerdown', function () { if (!$('shapeMenu').hidden || !$('stampMenu').hidden) closeLayer(); });
   function setBurst(v) {
     burstOn = v; var b = $('burstBtn'); b.classList.toggle('on', v); b.setAttribute('aria-pressed', v); store('burst', v ? '1' : '0');
     $('shutter').classList.toggle('burstOn', v);
@@ -807,8 +822,31 @@
     stampOn = v; var b = $('stampBtn'); b.classList.toggle('on', v); b.setAttribute('aria-pressed', v); store('stamp', v ? '1' : '0');
     layoutFrame();
   }
+  // 「📅 日付」を押すと、入れる・入れない/色/時刻/場所 を選ぶ小さな画面が出る(2026-11-10 ノブさん)
+  function buildStampMenu() {
+    var box = $('stampMenu').firstChild; box.innerHTML = '';
+    function row(label, opts, curV, set) {
+      var d = document.createElement('div'); d.className = 'row';
+      d.innerHTML = '<span>' + label + '</span>';
+      opts.forEach(function (o) {
+        var b = document.createElement('button'); b.type = 'button'; b.setAttribute('role', 'menuitemradio');
+        b.setAttribute('aria-checked', curV === o[0]); b.className = curV === o[0] ? 'on' : '';
+        b.innerHTML = o[1];
+        b.onclick = function () { set(o[0]); buildStampMenu(); };
+        d.appendChild(b);
+      });
+      box.appendChild(d);
+    }
+    row('日付', [[true, '入れる'], [false, '入れない']], stampOn, function (v) { setStamp(v); });
+    if (!stampOn) return;
+    row('色', Object.keys(STAMP_COLORS).map(function (k) { return [k, '<i class="dot" style="background:' + STAMP_COLORS[k][1] + '"></i>' + STAMP_COLORS[k][0]]; }), stampColor,
+      function (v) { stampColor = v; store('stampColor', v); layoutFrame(); });
+    row('時刻', [[true, 'あり'], [false, 'なし']], stampTime, function (v) { stampTime = v; store('stampTime', v ? '1' : '0'); layoutFrame(); });
+    row('場所', [['l', '左下'], ['r', '右下']], stampPos, function (v) { stampPos = v; store('stampPos', v); layoutFrame(); });
+  }
   $('stampBtn').onclick = function () {
-    setStamp(!stampOn); toast(stampOn ? '日付: 写真の右下に入れます' : '日付: 入れない'); this.blur();
+    if (!$('stampMenu').hidden) closeLayer(); else { buildStampMenu(); openLayer('stamp'); show('stampMenu', true); }
+    this.blur();
   };
   $('burstBtn').onclick = function () {
     setBurst(!burstOn); toast(burstOn ? '連写オン: 白い丸を長押し' : '連写オフ: 長押ししても1枚'); this.blur();
@@ -869,6 +907,7 @@
   function render(name) {
     show('confirm', false);
     show('shapeMenu', name === 'menu');
+    show('stampMenu', name === 'stamp');
     if (name === 'vw' && cur) { show('gallery', true); show('viewer', true); return; }
     if (name === 'gal' || name === 'vw') { openGallery(); return; }   // openGallery は1枚の画面を閉じる
     show('viewer', false);
@@ -951,6 +990,9 @@
   document.addEventListener('fullscreenchange', layoutFrame);
   setSteady(store('steady') === '1');
   setBurst(store('burst') === '1');
+  if (STAMP_COLORS[store('stampColor')]) stampColor = store('stampColor');
+  stampTime = store('stampTime') !== '0';
+  stampPos = store('stampPos') === 'l' ? 'l' : 'r';
   setStamp(store('stamp') === '1');
   getAll().then(function (list) { photos = list.sort(function (a, b) { return b.t - a.t; }); refreshThumb(); }, function () {});
 
