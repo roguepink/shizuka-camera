@@ -275,7 +275,8 @@
   // normal = カメラのまま(たいてい 4:3)。full = 画面いっぱい(見えているとおりに撮る)
   var SHAPES = { normal: { r: 0 }, wide: { r: 16 / 9 }, square: { r: 1 }, full: { r: 'screen' } };
   var shape = 'normal', timerSec = 0, steady = false, burstOn = false, stampOn = false;
-  var stampColor = 'orange', stampTime = true, stampPos = 'r';
+  var stampColor = 'orange', stampTime = true, stampPos = 'r', stampDay = 'none';
+  var DAYS = { ja: ['日', '月', '火', '水', '木', '金', '土'], en: ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'] };
   var STAMP_COLORS = { orange: ['オレンジ', '#ff9a3c'], white: ['白', '#ffffff'], yellow: ['黄色', '#ffe14d'] };
 
   function store(k, v) { try { if (v === undefined) return localStorage.getItem('shizuka.' + k); localStorage.setItem('shizuka.' + k, v); } catch (e) { return null; } }
@@ -439,7 +440,8 @@
   // 写真の右下に「2026.11.10 14:30」。大きさは写真の短い辺の 4.5%(写真の大きさが変わっても同じ見え方)
   function stampText(t) {
     var d = new Date(t), z = function (n) { return ('0' + n).slice(-2); };
-    return d.getFullYear() + '.' + z(d.getMonth() + 1) + '.' + z(d.getDate()) + (stampTime ? ' ' + z(d.getHours()) + ':' + z(d.getMinutes()) : '');
+    var day = stampDay === 'ja' ? '(' + DAYS.ja[d.getDay()] + ')' : stampDay === 'en' ? ' ' + DAYS.en[d.getDay()] : '';
+    return d.getFullYear() + '.' + z(d.getMonth() + 1) + '.' + z(d.getDate()) + day + (stampTime ? ' ' + z(d.getHours()) + ':' + z(d.getMinutes()) : '');
   }
   function stampSize(w, h) { return Math.max(10, Math.round(Math.min(w, h) * 0.045)); }
   function drawStamp(cv, t) {
@@ -841,6 +843,7 @@
     if (!stampOn) return;
     row('色', Object.keys(STAMP_COLORS).map(function (k) { return [k, '<i class="dot" style="background:' + STAMP_COLORS[k][1] + '"></i>' + STAMP_COLORS[k][0]]; }), stampColor,
       function (v) { stampColor = v; store('stampColor', v); layoutFrame(); });
+    row('曜日', [['none', 'なし'], ['ja', '日本語'], ['en', '英語']], stampDay, function (v) { stampDay = v; store('stampDay', v); layoutFrame(); });
     row('時刻', [[true, 'あり'], [false, 'なし']], stampTime, function (v) { stampTime = v; store('stampTime', v ? '1' : '0'); layoutFrame(); });
     row('場所', [['l', '左下'], ['r', '右下']], stampPos, function (v) { stampPos = v; store('stampPos', v); layoutFrame(); });
   }
@@ -993,6 +996,7 @@
   if (STAMP_COLORS[store('stampColor')]) stampColor = store('stampColor');
   stampTime = store('stampTime') !== '0';
   stampPos = store('stampPos') === 'l' ? 'l' : 'r';
+  stampDay = DAYS[store('stampDay')] ? store('stampDay') : 'none';
   setStamp(store('stamp') === '1');
   getAll().then(function (list) { photos = list.sort(function (a, b) { return b.t - a.t; }); refreshThumb(); }, function () {});
 
